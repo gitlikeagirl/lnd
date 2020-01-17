@@ -485,7 +485,9 @@ service Lightning {
     */
     rpc CloseChannel (CloseChannelRequest) returns (stream CloseStatusUpdate) {
         option (google.api.http) = {
-            delete: "/v1/channels/{channel_point.funding_txid_str}/{channel_point.output_index}"
+            delete:
+                "/v1/channels/{channel_point.funding_txid_str}/"
+                "{channel_point.output_index}"
         };
     }
 
@@ -498,7 +500,9 @@ service Lightning {
     rpc AbandonChannel (AbandonChannelRequest)
         returns (AbandonChannelResponse) {
         option (google.api.http) = {
-            delete: "/v1/channels/abandon/{channel_point.funding_txid_str}/{channel_point.output_index}"
+            delete:
+                "/v1/channels/abandon/{channel_point.funding_txid_str}/"
+                "{channel_point.output_index}"
         };
     }
 
@@ -764,7 +768,8 @@ service Lightning {
     rpc ExportChannelBackup (ExportChannelBackupRequest)
         returns (ChannelBackup) {
         option (google.api.http) = {
-            get: "/v1/channels/backup/{chan_point.funding_txid_str}/{chan_point.output_index}"
+            get: "/v1/channels/backup/{chan_point.funding_txid_str}/"
+                 "{chan_point.output_index}"
         };
     };
 
@@ -2863,14 +2868,43 @@ message ListPaymentsRequest {
     /**
     If true, then return payments that have not yet fully completed. This means
     that pending payments, as well as failed payments will show up if this
-    field is set to True.
+    field is set to true. This flag doesn't change the meaning of the indices,
+    which are tied to individual payments.
     */
-    bool include_incomplete = 1;
+    bool include_incomplete = 1 [json_name = "include_incomplete"];
+
+    /**
+    The index of a payment that will be used as either the start or end of a
+    query to determine which payments should be returned in the response.
+    */
+    uint64 index_offset = 2 [json_name = "index_offset"];
+
+    /// The maximal number of payments returned in the response to this query.
+    uint64 max_payments = 3 [json_name = "max_payments"];
+
+    /**
+    If set, the payments returned will result from seeking backwards from the
+    specified index offset. This can be used to paginate backwards. The order
+    of the returned payments is always oldest first (ascending index order).
+    */
+    bool reversed = 4 [json_name = "reversed"];
 }
 
 message ListPaymentsResponse {
     /// The list of payments
-    repeated Payment payments = 1;
+    repeated Payment payments = 1 [json_name = "payments"];
+
+    /**
+    The index of the first item in the set of returned payments. This can be
+    used to seek backwards, pagination style.
+    */
+    uint64 first_index_offset = 2 [json_name = "first_index_offset"];
+
+    /**
+    The index of the last item in the set of returned payments. This can be used
+    to seek further, pagination style.
+    */
+    uint64 last_index_offset = 3 [json_name = "last_index_offset"];
 }
 
 message DeleteAllPaymentsRequest {
