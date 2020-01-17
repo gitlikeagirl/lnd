@@ -383,6 +383,159 @@ func fetchHtlcFailInfo(bucket *bbolt.Bucket) (*HTLCFailInfo, error) {
 	return deserializeHTLCFailInfo(r)
 }
 
+// PaymentsQuery represents a query to the payments database starting or ending
+// at a certain offset index. The number of retrieved records can be limited.
+type PaymentsQuery struct {
+	// IndexOffset determines the starting point of the payments query and
+	// is always exclusive. In normal order, the query starts one index
+	// higher than the IndexOffset, in reversed order, the query ends one
+	// index lower than the IndexOffset.
+	IndexOffset uint64
+
+	// MaxPayments is the maximal number of payments returned in the
+	// payments query.
+	MaxPayments uint64
+
+	// Reversed gives a meaning to the IndexOffset. If reversed is set to
+	// true, the query will fetch payments with indices lower than the
+	// IndexOffset.
+	Reversed bool
+
+	// If IncludeIncomplete is true, then return payments that have not yet
+	// fully completed. This means that pending payments, as well as failed
+	// payments will show up if this field is set to true.
+	IncludeIncomplete bool
+}
+
+// PaymentsQuerySlice contains the result of a query to the payments database.
+// It includes the original query, the set of payments that match the query,
+// and integers which represent the offset index of the first and last item
+// returned in the series of payments. These integers allow callers to resume
+// their query in the event that the query's response exceeds the max number of
+// returnable events.
+type PaymentsQuerySlice struct {
+	PaymentsQuery
+
+	// Payments is the set of payments returned from the database for the
+	// PaymentsQuery.
+	Payments []MPPayment
+
+	// FirstIndexOffset is the index of the first element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response.
+	FirstIndexOffset uint64
+
+	// LastIndexOffset is the index of the last element in the set of
+	// returned MPPayments. Callers can use this to resume their query
+	// in the event that the slice has too many events to fit into a single
+	// response.
+	LastIndexOffset uint64
+}
+
+// startIndex determines the index from where we loop through the payments.
+// indexOffset is excluded and we start at the next index for normal order
+// and at the previous index for reversed order.
+// startIndex returns a boolean, which tells about whether the indexOffset
+// would give rise to payments found in the next when looping through them.
+func startIndex(indexOffset, paymentsLength uint64, reversed bool) (uint64, bool) {
+	if reversed {
+		switch {
+		// When indexOffset is zero or the indexOffset lies outside
+		// of the payments range, we start from the last known payment.
+		case indexOffset == 0 || indexOffset > paymentsLength:
+			return paymentsLength, true
+		case indexOffset > 1:
+			return indexOffset - 1, true
+		default:
+			return 0, false
+		}
+	}
+	// Handle the normal (forwards) order.
+	switch {
+	case indexOffset < paymentsLength:
+		return indexOffset + 1, true
+	default:
+		return 0, false
+	}
+}
+
+// nextIndex determines the next payment index in the loop.
+// It includes a boolean which tells about whether there was a next index.
+func nextIndex(index, paymentsLength uint64, reversed bool) (uint64, bool) {
+	switch {
+	case reversed && index > 1:
+		return index - 1, true
+	case !reversed && index < paymentsLength:
+		return index + 1, true
+	// Stop if payments are exhausted.
+	default:
+		return 0, false
+	}
+}
+
+// QueryPayments is a query to the payments database which is restricted
+// to a subset of payments by the payments query, containing an offset
+// index and a maximum number of returned payments.
+func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsQuerySlice, error) {
+	resp := PaymentsQuerySlice{
+		PaymentsQuery: query,
+	}
+	allPayments, err := db.FetchPayments()
+	if err != nil {
+		return resp, err
+	}
+	paymentsLength := uint64(len(allPayments))
+
+	if paymentsLength == 0 {
+		return resp, nil
+	}
+
+	i, ok := startIndex(query.IndexOffset, paymentsLength, query.Reversed)
+
+	var count uint64
+	for ; count < query.MaxPayments && ok; i, ok = nextIndex(
+		i, paymentsLength, query.Reversed) {
+
+		// To keep compatibility with the old API, we only return
+		// non-succeeded payments if requested.
+		if allPayments[i-1].Status != StatusSucceeded &&
+			!query.IncludeIncomplete {
+			continue
+		}
+
+		// Update first and last index offsets for the set of returned
+		// payments. If we traverse in the reversed order we remember
+		// the first handled payment and set the LastIndexOffset to its
+		// index. The FirstIndexOffset is updated every time we add
+		// another payment. In the forward order we only set the
+		// FirstIndexOffset once and update the LastIndexOffset.
+		if query.Reversed {
+			resp.FirstIndexOffset = i
+			if resp.LastIndexOffset == 0 {
+				resp.LastIndexOffset = i
+			}
+		} else {
+			if resp.FirstIndexOffset == 0 {
+				resp.FirstIndexOffset = i
+			}
+			resp.LastIndexOffset = i
+		}
+
+		resp.Payments = append(resp.Payments, *allPayments[i-1])
+		count++
+	}
+
+	// Need to swap the payments slice order if reversed order.
+	if query.Reversed {
+		for l, r := 0, len(resp.Payments)-1; l < r; l, r = l+1, r-1 {
+			resp.Payments[l], resp.Payments[r] = resp.Payments[r], resp.Payments[l]
+		}
+	}
+
+	return resp, err
+}
+
 // DeletePayments deletes all completed and failed payments from the DB.
 func (db *DB) DeletePayments() error {
 	return db.Update(func(tx *bbolt.Tx) error {
