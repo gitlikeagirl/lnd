@@ -948,7 +948,6 @@ func (l *channelLink) htlcManager() {
 					l.log.Errorf("unable to mark channel "+
 						"borked: %v", err)
 				}
-
 			// Other, unspecified error.
 			default:
 			}
@@ -962,7 +961,7 @@ func (l *channelLink) htlcManager() {
 					"states: %v", err,
 			)
 			return
-		}
+
 	}
 
 	// We've successfully reestablished the channel, mark it as such to
