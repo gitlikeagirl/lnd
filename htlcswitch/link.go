@@ -961,7 +961,7 @@ func (l *channelLink) htlcManager() {
 					"states: %v", err,
 			)
 			return
-
+		}
 	}
 
 	// We've successfully reestablished the channel, mark it as such to
