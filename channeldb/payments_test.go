@@ -180,47 +180,16 @@ func TestRouteSerialization(t *testing.T) {
 // TestQueryPayments tests retrieval of payments with forwards and reversed
 // queries.
 func TestQueryPayments(t *testing.T) {
-	db, err := initDB()
-	if err != nil {
-		t.Fatalf("unable to init db: %v", err)
-	}
-
-	// Populate the database with a set of test payments.
-	numberOfPayments := 7
-	pControl := NewPaymentControl(db)
-	for i := 0; i < numberOfPayments; i++ {
-		info, _, _, err := genInfo()
-		if err != nil {
-			t.Fatalf("unable to create test payment "+
-				"tests: %v", err)
-		}
-
-		err = pControl.InitPayment(info.PaymentHash, info)
-		if err != nil {
-			t.Fatalf("unable to initialize payment in "+
-				"database: %v", err)
-		}
-	}
-
-	// Fetch all payments in the database.
-	allPayments, err := db.FetchPayments()
-	if err != nil {
-		t.Fatalf("payments could not be fetched from "+
-			"database: %v", err)
-	}
-
-	if len(allPayments) != 7 {
-		t.Fatalf("Number of payments received does not "+
-			"match expected one. Got %v, want %v.",
-			len(allPayments), 7)
-	}
-
 	// Define table driven test for QueryPayments.
 	tests := []struct {
 		desc       string
 		query      PaymentsQuery
 		firstIndex uint64
 		lastIndex  uint64
+
+		// expectedSeqNrs contains the set of sequence numbers we expect
+		// our query to return.
+		expectedSeqNrs []uint64
 	}{
 		{
 			desc: "Test IndexOffset at the end of the payments range.",
@@ -230,8 +199,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 0,
-			lastIndex:  0,
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
 		},
 		{
 			desc: "Test query in forwards order, start at beginning.",
@@ -241,8 +211,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 1,
-			lastIndex:  2,
+			firstIndex:     1,
+			lastIndex:      2,
+			expectedSeqNrs: []uint64{1, 2},
 		},
 		{
 			desc: "Test query in forwards order, start at end, " +
@@ -253,8 +224,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 7,
-			lastIndex:  7,
+			firstIndex:     7,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{7},
 		},
 		{
 			desc: "Start at offset index outside of payments.",
@@ -264,8 +236,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 0,
-			lastIndex:  0,
+			firstIndex:     0,
+			lastIndex:      0,
+			expectedSeqNrs: nil,
 		},
 		{
 			desc: "Test overflow in forwards order.",
@@ -275,8 +248,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          false,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 5,
-			lastIndex:  7,
+			firstIndex:     5,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{5, 6, 7},
 		},
 		{
 			desc: "Start at offset index outside of payments, " +
@@ -287,8 +261,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 6,
-			lastIndex:  7,
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
 		},
 		{
 			desc: "Test query in reverse order, start at end.",
@@ -298,8 +273,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 6,
-			lastIndex:  7,
+			firstIndex:     6,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{6, 7},
 		},
 		{
 			desc: "Test query in reverse order, starting in middle.",
@@ -309,8 +285,9 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 2,
-			lastIndex:  3,
+			firstIndex:     2,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{2, 3},
 		},
 		{
 			desc: "Test query in reverse order, starting in middle, " +
@@ -321,28 +298,68 @@ func TestQueryPayments(t *testing.T) {
 				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 1,
-			lastIndex:  3,
+			firstIndex:     1,
+			lastIndex:      3,
+			expectedSeqNrs: []uint64{1, 2, 3},
 		},
 		{
-			desc: "Test underflow in reverse order.",
+			desc: "all payments in reverse, order maintained",
 			query: PaymentsQuery{
-				IndexOffset:       4,
-				MaxPayments:       math.MaxUint64,
+				IndexOffset:       0,
+				MaxPayments:       7,
 				Reversed:          true,
 				IncludeIncomplete: true,
 			},
-			firstIndex: 1,
-			lastIndex:  3,
+			firstIndex:     1,
+			lastIndex:      7,
+			expectedSeqNrs: []uint64{1, 2, 3, 4, 5, 6, 7},
 		},
 	}
 
-	// Test queried payments.
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.desc, func(t *testing.T) {
 			t.Parallel()
-			querySlice, _ := db.QueryPayments(tt.query)
+
+			db, err := initDB()
+			if err != nil {
+				t.Fatalf("unable to init db: %v", err)
+			}
+
+			// Populate the database with a set of test payments.
+			numberOfPayments := 7
+			pControl := NewPaymentControl(db)
+			for i := 0; i < numberOfPayments; i++ {
+				info, _, _, err := genInfo()
+				if err != nil {
+					t.Fatalf("unable to create test payment "+
+						"tests: %v", err)
+				}
+
+				err = pControl.InitPayment(info.PaymentHash, info)
+				if err != nil {
+					t.Fatalf("unable to initialize payment in "+
+						"database: %v", err)
+				}
+			}
+
+			// Fetch all payments in the database.
+			allPayments, err := db.FetchPayments()
+			if err != nil {
+				t.Fatalf("payments could not be fetched from "+
+					"database: %v", err)
+			}
+
+			if len(allPayments) != 7 {
+				t.Fatalf("Number of payments received does not "+
+					"match expected one. Got %v, want %v.",
+					len(allPayments), 7)
+			}
+
+			querySlice, err := db.QueryPayments(tt.query)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			if tt.firstIndex != querySlice.FirstIndexOffset ||
 				tt.lastIndex != querySlice.LastIndexOffset {
 				t.Errorf("First or last index does not match "+
@@ -351,22 +368,19 @@ func TestQueryPayments(t *testing.T) {
 					querySlice.FirstIndexOffset,
 					querySlice.LastIndexOffset)
 			}
+
+			if len(querySlice.Payments) != len(tt.expectedSeqNrs) {
+				t.Fatalf("expected: %v payments, got: %v",
+					len(allPayments), len(querySlice.Payments))
+			}
+
+			for i, seqNr := range tt.expectedSeqNrs {
+				q := querySlice.Payments[i]
+				if seqNr != q.sequenceNum {
+					t.Fatalf("sequence numbers do not match, "+
+						"got %v, want %v", q.sequenceNum, seqNr)
+				}
+			}
 		})
 	}
-
-	// Fetch all payments and test if order is preserved.
-	querySlice, _ := db.QueryPayments(PaymentsQuery{
-		IndexOffset:       0,
-		MaxPayments:       7,
-		Reversed:          true,
-		IncludeIncomplete: true,
-	})
-	for i, p := range allPayments {
-		q := querySlice.Payments[i]
-		if p.sequenceNum != q.sequenceNum {
-			t.Fatalf("sequence numbers do not match, "+
-				"got %v, want %v", p.sequenceNum, q.sequenceNum)
-		}
-	}
-
 }

@@ -433,47 +433,6 @@ type PaymentsQuerySlice struct {
 	LastIndexOffset uint64
 }
 
-// startIndex determines the index from where we loop through the payments.
-// indexOffset is excluded and we start at the next index for normal order
-// and at the previous index for reversed order.
-// startIndex returns a boolean, which tells about whether the indexOffset
-// would give rise to payments found in the next when looping through them.
-func startIndex(indexOffset, paymentsLength uint64, reversed bool) (uint64, bool) {
-	if reversed {
-		switch {
-		// When indexOffset is zero or the indexOffset lies outside
-		// of the payments range, we start from the last known payment.
-		case indexOffset == 0 || indexOffset > paymentsLength:
-			return paymentsLength, true
-		case indexOffset > 1:
-			return indexOffset - 1, true
-		default:
-			return 0, false
-		}
-	}
-	// Handle the normal (forwards) order.
-	switch {
-	case indexOffset < paymentsLength:
-		return indexOffset + 1, true
-	default:
-		return 0, false
-	}
-}
-
-// nextIndex determines the next payment index in the loop.
-// It includes a boolean which tells about whether there was a next index.
-func nextIndex(index, paymentsLength uint64, reversed bool) (uint64, bool) {
-	switch {
-	case reversed && index > 1:
-		return index - 1, true
-	case !reversed && index < paymentsLength:
-		return index + 1, true
-	// Stop if payments are exhausted.
-	default:
-		return 0, false
-	}
-}
-
 // QueryPayments is a query to the payments database which is restricted
 // to a subset of payments by the payments query, containing an offset
 // index and a maximum number of returned payments.
@@ -491,16 +450,47 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsQuerySlice, error) {
 		return resp, nil
 	}
 
-	i, ok := startIndex(query.IndexOffset, paymentsLength, query.Reversed)
+	indexLimit := query.IndexOffset
+	// If the index limit is the default 0 value, we set our limit to our
+	// highest sequence number.
+	if indexLimit == 0 && query.Reversed {
+		indexLimit = allPayments[len(allPayments)-1].sequenceNum + 1
+	}
 
-	var count uint64
-	for ; count < query.MaxPayments && ok; i, ok = nextIndex(
-		i, paymentsLength, query.Reversed) {
+	for i := range allPayments {
+		// If we have the max number of payments we want, exit.
+		if uint64(len(resp.Payments)) == query.MaxPayments {
+			break
+		}
+
+		index := i
+		if query.Reversed {
+			index = len(allPayments) - 1 - i
+		}
+
+		payment := allPayments[index]
+
+		// If we are paginating backwards, skip over all payments that
+		// have sequence numbers greater than or equal to the index
+		// offset. We skip payments with equal index because the
+		// offset is exclusive.
+		if query.Reversed && payment.sequenceNum >= indexLimit {
+			continue
+		}
+
+		// If we are paginating forwards, skip over all payments that
+		// have sequence numbers less than or equal to the index offset.
+		// We skip payments with equal indexes because the index offset
+		// is exclusive.
+		if !query.Reversed && payment.sequenceNum <= indexLimit {
+			continue
+		}
 
 		// To keep compatibility with the old API, we only return
 		// non-succeeded payments if requested.
-		if allPayments[i-1].Status != StatusSucceeded &&
+		if payment.Status != StatusSucceeded &&
 			!query.IncludeIncomplete {
+
 			continue
 		}
 
@@ -511,19 +501,32 @@ func (db *DB) QueryPayments(query PaymentsQuery) (PaymentsQuerySlice, error) {
 		// another payment. In the forward order we only set the
 		// FirstIndexOffset once and update the LastIndexOffset.
 		if query.Reversed {
-			resp.FirstIndexOffset = i
+			// Update the first index offset with every payment,
+			// because we are paginating backwards, constantly
+			// decreasing this value.
+			resp.FirstIndexOffset = payment.sequenceNum
+
+			// If we have not set the last index offset, which is
+			// our starting point in reversed queries, set it to
+			// the current payment's sequence number.
 			if resp.LastIndexOffset == 0 {
-				resp.LastIndexOffset = i
+				resp.LastIndexOffset = payment.sequenceNum
 			}
 		} else {
+			// If we have not set the first index offset, which is
+			// our starting point in forwards queries, set it to the
+			// current payment's sequence number.
 			if resp.FirstIndexOffset == 0 {
-				resp.FirstIndexOffset = i
+				resp.FirstIndexOffset = payment.sequenceNum
 			}
-			resp.LastIndexOffset = i
+
+			// Update the last index offset with every payment.
+			// because we are paginating forwards, constantly
+			// increasing this value.
+			resp.LastIndexOffset = payment.sequenceNum
 		}
 
-		resp.Payments = append(resp.Payments, *allPayments[i-1])
-		count++
+		resp.Payments = append(resp.Payments, *payment)
 	}
 
 	// Need to swap the payments slice order if reversed order.
