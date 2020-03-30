@@ -30,6 +30,19 @@ const (
 	stateTimeout = time.Second * 15
 )
 
+// newMockArbitratorLog returns a mockArbitratorLog in the start state provided
+// with enough space for newStateCount transitions before it blocks on state
+// transitions.
+func newMockArbitratorLog(startState ArbitratorState,
+	newStateCount int) *mockArbitratorLog {
+
+	return &mockArbitratorLog{
+		state:     startState,
+		newStates: make(chan ArbitratorState, newStateCount),
+		resolvers: make(map[ContractResolver]struct{}),
+	}
+}
+
 type mockArbitratorLog struct {
 	state           ArbitratorState
 	newStates       chan ArbitratorState
@@ -437,10 +450,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 // correctly marks the channel resolved in case a cooperative close is
 // confirmed.
 func TestChannelArbitratorCooperativeClose(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -498,10 +508,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 // through the expected states if a remote force close is observed in the
 // chain.
 func TestChannelArbitratorRemoteForceClose(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -553,10 +560,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 // through the expected states in case we request it to force close the channel,
 // and the local force close event is observed in chain.
 func TestChannelArbitratorLocalForceClose(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -659,10 +663,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 // through the expected states in case we notice a breach in the chain, and
 // gracefully exits.
 func TestChannelArbitratorBreachClose(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -976,10 +977,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 // ChannelArbitrator behaves as expected in the case where we request a local
 // force close, but a remote commitment ends up being confirmed in chain.
 func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -1085,10 +1083,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 // force close, but we fail broadcasting our commitment because a remote
 // commitment has already been published.
 func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -1317,10 +1312,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 // ChannelArbitrator to gracefully exit, as the breach is handled by other
 // subsystems.
 func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
@@ -1599,9 +1591,8 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 
 	// We'll create the arbitrator and its backing log to signal that it's
 	// already in the process of being force closed.
-	log := &mockArbitratorLog{
-		state: StateCommitmentBroadcasted,
-	}
+	log := newMockArbitratorLog(StateCommitmentBroadcasted, 0)
+
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
@@ -1692,11 +1683,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 		t.Run(testName, func(t *testing.T) {
 			t.Parallel()
 
-			arbLog := &mockArbitratorLog{
-				state:     StateDefault,
-				newStates: make(chan ArbitratorState, 5),
-				resolvers: make(map[ContractResolver]struct{}),
-			}
+			arbLog := newMockArbitratorLog(StateDefault, 5)
 
 			chanArbCtx, err := createTestChannelArbitrator(
 				t, arbLog,
@@ -1871,11 +1858,8 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 	t.Parallel()
 
 	// We'll create the arbitrator and its backing log in a default state.
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-		resolvers: make(map[ContractResolver]struct{}),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
+
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
@@ -2095,10 +2079,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 
 // TestChannelArbitratorAnchors asserts that the commitment tx anchor is swept.
 func TestChannelArbitratorAnchors(t *testing.T) {
-	log := &mockArbitratorLog{
-		state:     StateDefault,
-		newStates: make(chan ArbitratorState, 5),
-	}
+	log := newMockArbitratorLog(StateDefault, 5)
 
 	chanArbCtx, err := createTestChannelArbitrator(t, log)
 	if err != nil {
