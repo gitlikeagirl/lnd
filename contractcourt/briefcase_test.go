@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	prand "math/rand"
 
 	"github.com/btcsuite/btcd/btcec"
@@ -227,6 +229,7 @@ func assertResolversEqual(t *testing.T, originalResolver ContractResolver,
 
 	case *commitSweepResolver:
 		diskRes := diskResolver.(*commitSweepResolver)
+		assert.Equal(t, ogRes.commitResolution, diskRes.commitResolution)
 		if !reflect.DeepEqual(ogRes.commitResolution, diskRes.commitResolution) {
 			t.Fatalf("resolution mismatch: expected %v, got %v",
 				ogRes.commitResolution, diskRes.commitResolution)
@@ -272,7 +275,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
+		resolved:         false,
 		broadcastHeight:  102,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 12,
@@ -287,7 +290,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
+		resolved:         false,
 		broadcastHeight:  109,
 		htlc: channeldb.HTLC{
 			RHash: testPreimage,
@@ -341,43 +344,18 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	// With the resolvers inserted, we'll now attempt to retrieve them from
 	// the database, so we can compare them to the versions we created
 	// above.
-	diskResolvers, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to retrieve resolvers: %v", err)
-	}
-
-	if len(diskResolvers) != len(resolvers) {
-		t.Fatalf("expected %v got resolvers, instead got %v: %#v",
-			len(resolvers), len(diskResolvers),
-			diskResolvers)
-	}
-
-	// Now we'll run through each of the resolvers, and ensure that it maps
-	// to a resolver perfectly that we inserted previously.
-	for _, diskResolver := range diskResolvers {
-		resKey := string(diskResolver.ResolverKey())
-		originalResolver, ok := resolverMap[resKey]
-		if !ok {
-			t.Fatalf("unable to find resolver match for %T: %v",
-				diskResolver, resKey)
-		}
-
-		assertResolversEqual(t, originalResolver, diskResolver)
-	}
+	checkResolverSet(t, testLog, false, resolverMap)
 
 	// We'll now delete the state, then attempt to retrieve the set of
 	// resolvers, no resolvers should be found.
 	if err := testLog.WipeHistory(); err != nil {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
-	diskResolvers, err = testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch unresolved contracts: %v", err)
-	}
-	if len(diskResolvers) != 0 {
-		t.Fatalf("no resolvers should be found, instead %v were",
-			len(diskResolvers))
-	}
+
+	// We do not expect to have resolved or unresolved on disk because we
+	// have deleted the log.
+	checkResolverSet(t, testLog, false, nil)
+	checkResolverSet(t, testLog, true, nil)
 }
 
 // TestContractResolution tests that once we mark a contract as resolved, it's
@@ -406,7 +384,7 @@ func TestContractResolution(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
+		resolved:         false,
 		broadcastHeight:  192,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 9912,
@@ -419,26 +397,22 @@ func TestContractResolution(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
-	dbContracts, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
-	assertResolversEqual(t, timeoutResolver, dbContracts[0])
+
+	checkResolverSet(
+		t, testLog, false, map[string]ContractResolver{
+			string(timeoutResolver.ResolverKey()): timeoutResolver,
+		},
+	)
 
 	// Now, we'll mark the contract as resolved within the database.
 	if err := testLog.ResolveContract(timeoutResolver); err != nil {
 		t.Fatalf("unable to resolve contract: %v", err)
 	}
 
-	// At this point, no contracts should exist within the log.
-	dbContracts, err = testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
-	if len(dbContracts) != 0 {
-		t.Fatalf("no contract should be from in the db, instead %v "+
-			"were", len(dbContracts))
-	}
+	// We do not expect to have resolved or unresolved on disk because we
+	// have resolved the timeout resolver (which deletes it from disk).
+	checkResolverSet(t, testLog, false, nil)
+	checkResolverSet(t, testLog, true, nil)
 }
 
 // TestContractSwapping ensures that callers are able to atomically swap to
@@ -467,7 +441,7 @@ func TestContractSwapping(t *testing.T) {
 			SweepSignDesc:   testSignDesc,
 		},
 		outputIncubating: true,
-		resolved:         true,
+		resolved:         false,
 		broadcastHeight:  102,
 		htlc: channeldb.HTLC{
 			HtlcIndex: 12,
@@ -483,6 +457,11 @@ func TestContractSwapping(t *testing.T) {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
 
+	checkResolverSet(
+		t, testLog, false, map[string]ContractResolver{
+			string(contestResolver.ResolverKey()): contestResolver,
+		})
+
 	// With the resolver inserted, we'll now attempt to atomically swap it
 	// for its underlying timeout resolver.
 	err = testLog.SwapContract(contestResolver, &timeoutResolver)
@@ -492,17 +471,11 @@ func TestContractSwapping(t *testing.T) {
 
 	// At this point, there should now only be a single contract in the
 	// database.
-	dbContracts, err := testLog.FetchUnresolvedContracts()
-	if err != nil {
-		t.Fatalf("unable to fetch contracts from db: %v", err)
-	}
-	if len(dbContracts) != 1 {
-		t.Fatalf("one contract should be from in the db, instead %v "+
-			"were", len(dbContracts))
-	}
-
-	// That single contract should be the underlying timeout resolver.
-	assertResolversEqual(t, &timeoutResolver, dbContracts[0])
+	checkResolverSet(
+		t, testLog, false, map[string]ContractResolver{
+			string(timeoutResolver.ResolverKey()): &timeoutResolver,
+		},
+	)
 }
 
 // TestContractResolutionsStorage tests that we're able to properly store and
@@ -755,6 +728,131 @@ func TestCommitSetStorage(t *testing.T) {
 		}
 	}
 
+}
+
+// TestTestFetchContract tests fetching of resolved and unresolved resolvers
+// from the arbitrator log.
+func TestTestFetchContract(t *testing.T) {
+	tests := []struct {
+		name string
+
+		// getLog returns a log and cleanup function to use for the
+		// test.
+		getLog func(t *testing.T) (ArbitratorLog, func())
+	}{
+		{
+			name: "mock log",
+			getLog: func(_ *testing.T) (arbitratorLog ArbitratorLog,
+				f func()) {
+
+				return newMockArbitratorLog(
+					StateDefault, 0,
+				), func() {}
+			},
+		},
+		{
+			name: "bolt log",
+			getLog: func(t *testing.T) (arbitratorLog ArbitratorLog,
+				f func()) {
+
+				boltLog, cleanup, err := newTestBoltArbLog(
+					testChainHash, testChanPoint1)
+				if err != nil {
+					t.Fatalf("unexpected error: %v",
+						err)
+				}
+
+				return boltLog, cleanup
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			log, cleanup := test.getLog(t)
+			defer cleanup()
+
+			// We do not expect any resolved or unresolved
+			// resolvers to start with.
+			checkResolverSet(t, log, true, nil)
+			checkResolverSet(t, log, false, nil)
+
+			resolved := &commitSweepResolver{
+				commitResolution: lnwallet.CommitOutputResolution{
+					SelfOutPoint:       testChanPoint1,
+					SelfOutputSignDesc: testSignDesc,
+				},
+				resolved: true,
+			}
+			err := log.InsertUnresolvedContracts(resolved)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			unresolved := &commitSweepResolver{
+				commitResolution: lnwallet.CommitOutputResolution{
+					SelfOutPoint:       testChanPoint2,
+					SelfOutputSignDesc: testSignDesc,
+				},
+				resolved: false,
+			}
+			err = log.InsertUnresolvedContracts(unresolved)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			var (
+				resolvedKey   = string(resolved.ResolverKey())
+				unresolvedKey = string(unresolved.ResolverKey())
+			)
+
+			// We expect both resolvers to be returned when we
+			// include unresolved.
+			checkResolverSet(
+				t, log, true,
+				map[string]ContractResolver{
+					unresolvedKey: unresolved,
+					resolvedKey:   resolved,
+				},
+			)
+
+			// We expect only the unresolved resolver to be returned
+			// when we do not include resolved.
+			checkResolverSet(
+				t, log, false,
+				map[string]ContractResolver{
+					unresolvedKey: unresolved,
+				},
+			)
+		})
+	}
+}
+
+func checkResolverSet(t *testing.T, log ArbitratorLog, includeResolved bool,
+	expectedResolvers map[string]ContractResolver) {
+
+	actual, err := log.FetchContracts(includeResolved)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(actual) != len(expectedResolvers) {
+		t.Fatalf("expected: %v resolvers, got: %v",
+			len(expectedResolvers), len(actual))
+	}
+
+	for _, resolver := range actual {
+		strKey := string(resolver.ResolverKey())
+
+		expected, ok := expectedResolvers[strKey]
+		if !ok {
+			t.Fatalf("unexpected resolver: %v", strKey)
+		}
+
+		assertResolversEqual(t, expected, resolver)
+	}
 }
 
 func init() {

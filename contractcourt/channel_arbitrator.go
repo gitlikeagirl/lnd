@@ -492,7 +492,7 @@ func (c *ChannelArbitrator) relaunchResolvers(commitSet *CommitSet,
 	// We'll now query our log to see if there are any active unresolved
 	// contracts. If this is the case, then we'll relaunch all contract
 	// resolvers.
-	unresolvedContracts, err := c.log.FetchUnresolvedContracts()
+	unresolvedContracts, err := c.log.FetchContracts(false)
 	if err != nil {
 		return err
 	}
@@ -986,7 +986,7 @@ func (c *ChannelArbitrator) stateStep(
 		log.Infof("ChannelArbitrator(%v): still awaiting contract "+
 			"resolution", c.cfg.ChanPoint)
 
-		numUnresolved, err := c.log.FetchUnresolvedContracts()
+		numUnresolved, err := c.log.FetchContracts(false)
 		if err != nil {
 			return StateError, closeTx, err
 		}

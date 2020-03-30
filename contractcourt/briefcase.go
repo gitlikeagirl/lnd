@@ -65,9 +65,10 @@ type ArbitratorLog interface {
 	// they've been swapped out, or resolved.
 	InsertUnresolvedContracts(...ContractResolver) error
 
-	// FetchUnresolvedContracts returns all unresolved contracts that have
-	// been previously written to the log.
-	FetchUnresolvedContracts() ([]ContractResolver, error)
+	// FetchContracts returns all contracts that have previously been
+	// written to the log. If the includeResolved parameter is false, only
+	// unresolved contracts are returned.
+	FetchContracts(includeResolved bool) ([]ContractResolver, error)
 
 	// SwapContract performs an atomic swap of the old contract for the new
 	// contract. This method is used when after a contract has been fully
@@ -451,11 +452,14 @@ func (b *boltArbitratorLog) CommitState(s ArbitratorState) error {
 	})
 }
 
-// FetchUnresolvedContracts returns all unresolved contracts that have been
-// previously written to the log.
+// FetchContracts returns all contracts that have previously been written to
+// the log. If the includeResolved parameter is false, only unresolved
+// contracts are returned.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, error) {
+func (b *boltArbitratorLog) FetchContracts(includeResolved bool) ([]ContractResolver,
+	error) {
+
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
@@ -525,7 +529,27 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 		return nil, err
 	}
 
-	return contracts, nil
+	// If we want to include resolved contracts, we can return the full set
+	// of contracts.
+	if includeResolved {
+		return contracts, nil
+	}
+
+	// If we only want unresolved contracts, we filter out all resolved
+	// contracts.
+	var unresolved []ContractResolver
+	for _, contract := range contracts {
+		if contract.IsResolved() {
+			continue
+		}
+
+		unresolved = append(unresolved, contract)
+	}
+
+	log.Tracef("FetchContracts returning: %v unresolved contracts "+
+		"from a total of: %v", len(unresolved), len(contracts))
+
+	return unresolved, nil
 }
 
 // InsertUnresolvedContracts inserts a set of unresolved contracts into the

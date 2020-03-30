@@ -76,19 +76,24 @@ func (b *mockArbitratorLog) CommitState(s ArbitratorState) error {
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver,
+func (b *mockArbitratorLog) FetchContracts(includeResolved bool) ([]ContractResolver,
 	error) {
 
 	b.Lock()
-	v := make([]ContractResolver, len(b.resolvers))
-	idx := 0
+	resolvers := []ContractResolver{}
+
 	for resolver := range b.resolvers {
-		v[idx] = resolver
-		idx++
+		// If the resolver is resolved, and we do not want to retrieve
+		// resolved contracts, skip it.
+		if resolver.IsResolved() && !includeResolved {
+			continue
+		}
+
+		resolvers = append(resolvers, resolver)
 	}
 	b.Unlock()
 
-	return v, nil
+	return resolvers, nil
 }
 
 func (b *mockArbitratorLog) InsertUnresolvedContracts(
