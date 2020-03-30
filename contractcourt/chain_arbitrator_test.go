@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 )
@@ -232,5 +233,182 @@ func TestResolveContract(t *testing.T) {
 	err = chainArb.ResolveContract(channel.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("second resolve call shouldn't fail: %v", err)
+	}
+}
+
+func TestArbitratorLogPersistence(t *testing.T) {
+	createLogWithState := func(t *testing.T, state ArbitratorState,
+		db kvdb.Backend, channel *channeldb.OpenChannel) {
+
+		log, err := newBoltArbitratorLog(
+			db, ChannelArbitratorConfig{}, testChainHash,
+			channel.FundingOutpoint,
+		)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+
+		if err := log.CommitState(state); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	tests := []struct {
+		name string
+
+		// createLog is true if a preexisting log should be created for
+		// the arbitrator.
+		createLog bool
+
+		// startState is the arbitrator state that the preexisting log
+		// will be created with if createLog is true.
+		startState ArbitratorState
+
+		// channelClosing determines whether our channel should be
+		// progressed to a waiting close state.
+		channelClosing bool
+
+		// expectArb is true if we expect an active channel arbitrator
+		// to be created for our channel.
+		expectArb bool
+	}{
+		{
+			name:           "open channel, no preexisting log",
+			createLog:      false,
+			channelClosing: false,
+			expectArb:      true,
+		},
+		{
+			name:           "open channel, preexisting default log",
+			createLog:      true,
+			startState:     StateDefault,
+			channelClosing: false,
+			expectArb:      true,
+		},
+		{
+			name:           "closing channel, preexisting default log",
+			createLog:      true,
+			startState:     StateDefault,
+			channelClosing: true,
+			expectArb:      true,
+		},
+		{
+			name:           "closing channel, resolved log",
+			createLog:      true,
+			startState:     StateFullyResolved,
+			channelClosing: true,
+			expectArb:      false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			tempPath, err := ioutil.TempDir("", "testdb")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer os.RemoveAll(tempPath)
+
+			db, err := channeldb.Open(tempPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer db.Close()
+
+			lChannel, _, cleanup, err := lnwallet.CreateTestChannels(
+				channeldb.SingleFunderTweaklessBit,
+			)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			lChannel.State().Db = db
+
+			// create a preexisting channel arbitrator log for the
+			// channel if the test requires it.
+			if test.createLog {
+				createLogWithState(
+					t, test.startState, db.Backend,
+					lChannel.State(),
+				)
+			}
+
+			testChannelArbitrator(
+				t, lChannel.State(), test.channelClosing,
+				test.expectArb,
+			)
+		})
+	}
+}
+
+func testChannelArbitrator(t *testing.T,
+	channel *channeldb.OpenChannel, channelClosing,
+	expectArbitrator bool) {
+
+	addr := &net.TCPAddr{
+		IP:   net.ParseIP("127.0.0.1"),
+		Port: 18556,
+	}
+	if err := channel.SyncPending(addr, 101); err != nil {
+		t.Fatal(err)
+	}
+
+	// If we want the channel to be in a pending close state, close the
+	// channel with pending = true.
+	if channelClosing {
+		closeSummary := &channeldb.ChannelCloseSummary{
+			ChanPoint: channel.FundingOutpoint,
+			RemotePub: channel.IdentityPub,
+			IsPending: true,
+			CloseType: channeldb.RemoteForceClose,
+		}
+		if err := channel.CloseChannel(closeSummary); err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+	}
+
+	chainArbCfg := ChainArbitratorConfig{
+		ChainIO:  &mockChainIO{},
+		Notifier: &mockNotifier{},
+		PublishTx: func(tx *wire.MsgTx) error {
+			return nil
+		},
+		Clock:     clock.NewDefaultClock(),
+		ChainHash: testChainHash,
+	}
+	chainArb := NewChainArbitrator(
+		chainArbCfg, channel.Db,
+	)
+
+	if err := chainArb.setupChannelArbitrators(); err != nil {
+		t.Fatalf("could not set up arbitrators: %v", err)
+	}
+
+	var (
+		expectedLen int
+		expectFound bool
+	)
+
+	// If we expect a chanel arbitrator to be added to the chain arbitrator,
+	// we set our expected length of activeChannels to 1 and we expect to
+	// find an arbitrator with our channel's outpoint in the map.
+	if expectArbitrator {
+		expectedLen = 1
+		expectFound = true
+	}
+
+	if len(chainArb.activeChannels) != expectedLen {
+		t.Fatalf("expected: %v arbitrators, got: %v",
+			expectedLen, len(chainArb.activeChannels))
+	}
+
+	_, ok := chainArb.activeChannels[channel.FundingOutpoint]
+	if ok != expectFound {
+		t.Fatalf("expected channel found: %v, got:%v",
+			channel.FundingOutpoint, ok)
 	}
 }

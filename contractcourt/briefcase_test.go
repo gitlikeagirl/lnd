@@ -346,16 +346,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	// above.
 	checkResolverSet(t, testLog, false, resolverMap)
 
-	// We'll now delete the state, then attempt to retrieve the set of
-	// resolvers, no resolvers should be found.
-	if err := testLog.WipeHistory(); err != nil {
-		t.Fatalf("unable to wipe log: %v", err)
-	}
-
-	// We do not expect to have resolved or unresolved on disk because we
-	// have deleted the log.
-	checkResolverSet(t, testLog, false, nil)
-	checkResolverSet(t, testLog, true, nil)
+	// TODO(carla): resolve and check here?
 }
 
 // TestContractResolution tests that once we mark a contract as resolved, it's
@@ -549,16 +540,6 @@ func TestContractResolutionsStorage(t *testing.T) {
 		t.Fatalf("resolution mismatch: expected %#v\n, got %#v",
 			&res, diskRes)
 	}
-
-	// We'll now delete the state, then attempt to retrieve the set of
-	// resolvers, no resolutions should be found.
-	if err := testLog.WipeHistory(); err != nil {
-		t.Fatalf("unable to wipe log: %v", err)
-	}
-	_, err = testLog.FetchContractResolutions()
-	if err != errScopeBucketNoExist {
-		t.Fatalf("unexpected error: %v", err)
-	}
 }
 
 // TestStateMutation tests that we're able to properly mutate the state of the
@@ -595,24 +576,6 @@ func TestStateMutation(t *testing.T) {
 	}
 	if arbState != StateFullyResolved {
 		t.Fatalf("state mismatch: expected %v, got %v", StateFullyResolved,
-			arbState)
-	}
-
-	// Next, we'll wipe our state and ensure that if we try to query for
-	// the current state, we get the proper error.
-	err = testLog.WipeHistory()
-	if err != nil {
-		t.Fatalf("unable to wipe history: %v", err)
-	}
-
-	// If we try to query for the state again, we should get the default
-	// state again.
-	arbState, err = testLog.CurrentState()
-	if err != nil {
-		t.Fatalf("unable to query current state: %v", err)
-	}
-	if arbState != StateDefault {
-		t.Fatalf("state mismatch: expected %v, got %v", StateDefault,
 			arbState)
 	}
 }

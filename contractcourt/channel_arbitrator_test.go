@@ -160,10 +160,6 @@ func (b *mockArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 	return b.commitSet, nil
 }
 
-func (b *mockArbitratorLog) WipeHistory() error {
-	return nil
-}
-
 // testArbLog is a wrapper around an existing (ideally fully concrete
 // ArbitratorLog) that lets us intercept certain calls like transitioning to a
 // new state.

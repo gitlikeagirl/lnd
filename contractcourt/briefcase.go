@@ -106,11 +106,6 @@ type ArbitratorLog interface {
 	// channels in the process of closing before the CommitSet struct was
 	// introduced.
 	FetchChainActions() (ChainActionMap, error)
-
-	// WipeHistory is to be called ONLY once *all* contracts have been
-	// fully resolved, and the channel closure if finalized. This method
-	// will delete all on-disk state within the persistent log.
-	WipeHistory() error
 }
 
 // ArbitratorState is an enum that details the current state of the
@@ -885,49 +880,6 @@ func (b *boltArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
 	}
 
 	return c, nil
-}
-
-// WipeHistory is to be called ONLY once *all* contracts have been fully
-// resolved, and the channel closure if finalized. This method will delete all
-// on-disk state within the persistent log.
-//
-// NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) WipeHistory() error {
-	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
-		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
-		if err != nil {
-			return err
-		}
-
-		// Once we have the main top-level bucket, we'll delete the key
-		// that stores the state of the arbitrator.
-		if err := scopeBucket.Delete(stateKey[:]); err != nil {
-			return err
-		}
-
-		// Next, we'll delete any lingering contract state within the
-		// contracts bucket by removing the bucket itself.
-		err = scopeBucket.DeleteNestedBucket(contractsBucketKey)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
-		// Next, we'll delete storage of any lingering contract
-		// resolutions.
-		if err := scopeBucket.Delete(resolutionsKey); err != nil {
-			return err
-		}
-
-		// We'll delete any chain actions that are still stored by
-		// removing the enclosing bucket.
-		err = scopeBucket.DeleteNestedBucket(actionsBucketKey)
-		if err != nil && err != kvdb.ErrBucketNotFound {
-			return err
-		}
-
-		// Finally, we'll delete the enclosing bucket itself.
-		return tx.DeleteTopLevelBucket(b.scopeKey[:])
-	})
 }
 
 // checkpointContract is a private method that will be fed into

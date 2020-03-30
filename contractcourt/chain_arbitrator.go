@@ -418,7 +418,6 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 	// Now that the channel has been marked as fully closed, we'll stop
 	// both the channel arbitrator and chain watcher for this channel if
 	// they're still active.
-	var arbLog ArbitratorLog
 	c.Lock()
 	chainArb := c.activeChannels[chanPoint]
 	delete(c.activeChannels, chanPoint)
@@ -428,8 +427,6 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 	c.Unlock()
 
 	if chainArb != nil {
-		arbLog = chainArb.log
-
 		if err := chainArb.Stop(); err != nil {
 			log.Warnf("unable to stop ChannelArbitrator(%v): %v",
 				chanPoint, err)
@@ -442,28 +439,15 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 		}
 	}
 
-	// Once this has been marked as resolved, we'll wipe the log that the
-	// channel arbitrator was using to store its persistent state. We do
-	// this after marking the channel resolved, as otherwise, the
-	// arbitrator would be re-created, and think it was starting from the
-	// default state.
-	if arbLog != nil {
-		if err := arbLog.WipeHistory(); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-// Start launches all goroutines that the ChainArbitrator needs to operate.
-func (c *ChainArbitrator) Start() error {
-	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
-		return nil
-	}
-
-	log.Tracef("Starting ChainArbitrator")
-
+// setupChannelArbitrators creates the set of channel arbitrators required by
+// the ChainArbitrator. For currently open channels, we create a fresh channel
+// arbitrator because we have no state on disk relevant to channels that are
+// not pending close yet.
+//TODO(carla): fixup this comment and check logic on open/closing channels
+func (c *ChainArbitrator) setupChannelArbitrators() error {
 	// First, we'll fetch all the channels that are still open, in order to
 	// collect them within our set of active contracts.
 	openChannels, err := c.chanSource.FetchAllChannels()
@@ -564,12 +548,42 @@ func (c *ChainArbitrator) Start() error {
 			return c.ResolveContract(chanPoint)
 		}
 
+		// If the log is already marked as fully resolved, then we do
+		// not need to take action for this channel.
+		state, err := chanLog.CurrentState()
+		if err != nil {
+			blockEpoch.Cancel()
+			return err
+		}
+
+		if state == StateFullyResolved {
+			blockEpoch.Cancel()
+			continue
+		}
+
 		// We can also leave off the set of HTLC's here as since the
 		// channel is already in the process of being full resolved, no
 		// new HTLC's will be added.
 		c.activeChannels[chanPoint] = NewChannelArbitrator(
 			arbCfg, nil, chanLog,
 		)
+	}
+
+	return nil
+}
+
+// Start launches all goroutines that the ChainArbitrator needs to operate.
+func (c *ChainArbitrator) Start() error {
+	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
+		return nil
+	}
+
+	log.Tracef("Starting ChainArbitrator")
+
+	// Setup the channel arbitrators the ChainArbitrator requires for our
+	// current set of open and closing channels.
+	if err := c.setupChannelArbitrators(); err != nil {
+		return err
 	}
 
 	// Now, we'll start all chain watchers in parallel to shorten start up
