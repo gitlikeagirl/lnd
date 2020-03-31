@@ -5,6 +5,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/input"
@@ -297,6 +298,32 @@ func (h *htlcSuccessResolver) Encode(w io.Writer) error {
 	}
 
 	return nil
+}
+
+func (h *htlcSuccessResolver) report() *ContractReport {
+	var (
+		finalAmt        = h.htlc.Amt.ToSatoshis()
+		stage    uint32 = 1
+	)
+
+	// If the SignedSuccessTx is non-nil, we have gone to the second stage
+	// to claim this htlc.
+	if h.htlcResolution.SignedSuccessTx != nil {
+		finalAmt = btcutil.Amount(
+			h.htlcResolution.SignedSuccessTx.TxOut[0].Value,
+		)
+		stage = 2
+	}
+
+	return &ContractReport{
+		Outpoint: h.htlcResolution.ClaimOutpoint,
+		Type:     ReportOutputSuccessHtlc,
+		Amount:   finalAmt,
+		// TODO(carla): figure out what the timeout is here.
+		MaturityHeight: h.htlc.RefundTimeout,
+		LimboBalance:   finalAmt,
+		Stage:          stage,
+	}
 }
 
 // newSuccessResolverFromReader attempts to decode an encoded ContractResolver

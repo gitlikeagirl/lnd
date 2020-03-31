@@ -165,6 +165,14 @@ const (
 
 	// ReportOutputAnchor is an anchor output on the commitment tx.
 	ReportOutputAnchor
+
+	// ReportOutputSuccessHtlc is an incoming htlc that we are claiming on
+	// chain with its preimage.
+	ReportOutputSuccessHtlc
+
+	// ReportOutputTimeoutHtlc is an outgoing htlc that we are claiming off
+	// chain because it has timed out.
+	ReportOutputTimeoutHtlc
 )
 
 // ContractReport provides a summary of a commitment tx output.

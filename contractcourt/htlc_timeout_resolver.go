@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -463,6 +464,32 @@ func (h *htlcTimeoutResolver) Supplement(htlc channeldb.HTLC) {
 // NOTE: Part of the htlcContractResolver interface.
 func (h *htlcTimeoutResolver) HtlcPoint() wire.OutPoint {
 	return h.htlcResolution.HtlcPoint()
+}
+
+func (h *htlcTimeoutResolver) report() *ContractReport {
+	var (
+		finalAmt        = h.htlc.Amt.ToSatoshis()
+		stage    uint32 = 1
+	)
+
+	// If the SignedTimeoutTx is non-nil, we have gone to the second stage
+	// to timeout this htlc.
+	if h.htlcResolution.SignedTimeoutTx != nil {
+		finalAmt = btcutil.Amount(
+			h.htlcResolution.SignedTimeoutTx.TxOut[0].Value,
+		)
+		stage = 2
+	}
+
+	return &ContractReport{
+		Outpoint: h.htlcResolution.ClaimOutpoint,
+		Type:     ReportOutputTimeoutHtlc,
+		Amount:   finalAmt,
+		// TODO(carla): figure out this timeout.
+		MaturityHeight: h.htlcResolution.Expiry,
+		LimboBalance:   finalAmt,
+		Stage:          stage,
+	}
 }
 
 // A compile time assertion to ensure htlcTimeoutResolver meets the
