@@ -75,10 +75,6 @@ type ArbitratorLog interface {
 	// resolved, it produces another contract that needs to be resolved.
 	SwapContract(old ContractResolver, new ContractResolver) error
 
-	// ResolveContract marks a contract as fully resolved. Once a contract
-	// has been fully resolved, it is deleted from persistent storage.
-	ResolveContract(ContractResolver) error
-
 	// LogContractResolutions stores a complete contract resolution for the
 	// contract under watch. This method will be called once the
 	// ChannelArbitrator either force closes a channel, or detects that the
@@ -588,22 +584,6 @@ func (b *boltArbitratorLog) SwapContract(oldContract, newContract ContractResolv
 		}
 
 		return b.writeResolver(contractBucket, newContract)
-	})
-}
-
-// ResolveContract marks a contract as fully resolved. Once a contract has been
-// fully resolved, it is deleted from persistent storage.
-//
-// NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) ResolveContract(res ContractResolver) error {
-	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
-		contractBucket, err := fetchContractWriteBucket(tx, b.scopeKey[:])
-		if err != nil {
-			return err
-		}
-
-		resKey := res.ResolverKey()
-		return contractBucket.Delete(resKey)
 	})
 }
 

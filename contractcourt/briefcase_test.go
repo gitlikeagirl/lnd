@@ -350,7 +350,8 @@ func TestContractInsertionRetrieval(t *testing.T) {
 }
 
 // TestContractResolution tests that once we mark a contract as resolved, it's
-// properly removed from the database.
+// is not returned when we query for unresolved contracts, but is included
+// when we want resolved contracts.
 func TestContractResolution(t *testing.T) {
 	t.Parallel()
 
@@ -389,21 +390,26 @@ func TestContractResolution(t *testing.T) {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
 
-	checkResolverSet(
-		t, testLog, false, map[string]ContractResolver{
-			string(timeoutResolver.ResolverKey()): timeoutResolver,
-		},
-	)
-
-	// Now, we'll mark the contract as resolved within the database.
-	if err := testLog.ResolveContract(timeoutResolver); err != nil {
-		t.Fatalf("unable to resolve contract: %v", err)
+	timeoutResolverMap := map[string]ContractResolver{
+		string(timeoutResolver.ResolverKey()): timeoutResolver,
 	}
 
-	// We do not expect to have resolved or unresolved on disk because we
-	// have resolved the timeout resolver (which deletes it from disk).
+	checkResolverSet(
+		t, testLog, false, timeoutResolverMap,
+	)
+
+	// Set the resolved field to true on disk.
+	timeoutResolver.resolved = true
+	err = testLog.InsertUnresolvedContracts(timeoutResolver)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// We expect the timeout resolver to be filtered out of our set of
+	// unresolved contracts, but included when we query for resolved
+	// contracts.
 	checkResolverSet(t, testLog, false, nil)
-	checkResolverSet(t, testLog, true, nil)
+	checkResolverSet(t, testLog, true, timeoutResolverMap)
 }
 
 // TestContractSwapping ensures that callers are able to atomically swap to

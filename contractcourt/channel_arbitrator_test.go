@@ -123,14 +123,6 @@ func (b *mockArbitratorLog) SwapContract(oldContract,
 	return nil
 }
 
-func (b *mockArbitratorLog) ResolveContract(res ContractResolver) error {
-	b.Lock()
-	delete(b.resolvers, res)
-	b.Unlock()
-
-	return nil
-}
-
 func (b *mockArbitratorLog) LogContractResolutions(c *ContractResolutions) error {
 	if b.failLog {
 		return fmt.Errorf("intentional log failure")

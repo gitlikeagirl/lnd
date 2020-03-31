@@ -2004,12 +2004,6 @@ func (c *ChannelArbitrator) resolveContract(currentContract ContractResolver) {
 					"contract %T fully resolved",
 					c.cfg.ChanPoint, currentContract)
 
-				err := c.log.ResolveContract(currentContract)
-				if err != nil {
-					log.Errorf("unable to resolve contract: %v",
-						err)
-				}
-
 				// Now that the contract has been resolved,
 				// well signal to the main goroutine.
 				select {
