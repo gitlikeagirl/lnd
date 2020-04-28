@@ -90,6 +90,10 @@ var (
 			Entity: "onchain",
 			Action: "write",
 		}},
+		"/walletrpc.WalletKit/LabelTransaction": {{
+			Entity: "onchain",
+			Action: "write",
+		}},
 	}
 
 	// DefaultWalletKitMacFilename is the default name of the wallet kit
@@ -568,4 +572,17 @@ func (w *WalletKit) BumpFee(ctx context.Context,
 	}
 
 	return &BumpFeeResponse{}, nil
+}
+
+// LabelTransaction adds a label to a transaction.
+func (w *WalletKit) LabelTransaction(ctx context.Context,
+	req *LabelTransactionRequest) (*LabelTransactionResponse, error) {
+
+	hash, err := chainhash.NewHash(req.Txid)
+	if err != nil {
+		return nil, err
+	}
+
+	err = w.cfg.Wallet.LabelTransaction(*hash, req.Label, req.Overwrite)
+	return &LabelTransactionResponse{}, err
 }
