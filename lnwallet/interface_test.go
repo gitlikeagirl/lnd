@@ -38,6 +38,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
@@ -529,7 +530,8 @@ func testDualFundingReservationWorkflow(miner *rpctest.Harness,
 	}
 
 	// Let Alice publish the funding transaction.
-	if err := alice.PublishTransaction(fundingTx); err != nil {
+	err = alice.PublishTransaction(fundingTx, labels.OpenChannel)
+	if err != nil {
 		t.Fatalf("unable to publish funding tx: %v", err)
 	}
 
@@ -1024,7 +1026,8 @@ func testSingleFunderReservationWorkflow(miner *rpctest.Harness,
 	}
 
 	// Let Alice publish the funding transaction.
-	if err := alice.PublishTransaction(fundingTx); err != nil {
+	err = alice.PublishTransaction(fundingTx, labels.OpenChannel)
+	if err != nil {
 		t.Fatalf("unable to publish funding tx: %v", err)
 	}
 
@@ -1669,7 +1672,8 @@ func testPublishTransaction(r *rpctest.Harness,
 	tx1 := newTx(t, r, keyDesc.PubKey, alice, false)
 
 	// Publish the transaction.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	err = alice.PublishTransaction(tx1, labels.UserSend)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1681,7 +1685,8 @@ func testPublishTransaction(r *rpctest.Harness,
 
 	// Publish the exact same transaction again. This should not return an
 	// error, even though the transaction is already in the mempool.
-	if err := alice.PublishTransaction(tx1); err != nil {
+	err = alice.PublishTransaction(tx1, labels.UserSend)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1700,7 +1705,8 @@ func testPublishTransaction(r *rpctest.Harness,
 	tx2 := newTx(t, r, keyDesc.PubKey, alice, false)
 
 	// Publish this tx.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	err = alice.PublishTransaction(tx2, labels.UserSend)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1711,7 +1717,8 @@ func testPublishTransaction(r *rpctest.Harness,
 
 	// Publish the transaction again. It is already mined, and we don't
 	// expect this to return an error.
-	if err := alice.PublishTransaction(tx2); err != nil {
+	err = alice.PublishTransaction(tx2, labels.UserSend)
+	if err != nil {
 		t.Fatalf("unable to publish: %v", err)
 	}
 
@@ -1727,7 +1734,8 @@ func testPublishTransaction(r *rpctest.Harness,
 		// transaction. Create a new tx and publish it. This is the
 		// output we'll try to double spend.
 		tx3 = newTx(t, r, keyDesc.PubKey, alice, false)
-		if err := alice.PublishTransaction(tx3); err != nil {
+		err := alice.PublishTransaction(tx3, labels.UserSend)
+		if err != nil {
 			t.Fatalf("unable to publish: %v", err)
 		}
 
@@ -1747,7 +1755,8 @@ func testPublishTransaction(r *rpctest.Harness,
 		}
 
 		// This should be accepted into the mempool.
-		if err := alice.PublishTransaction(tx4); err != nil {
+		err = alice.PublishTransaction(tx4, labels.UserSend)
+		if err != nil {
 			t.Fatalf("unable to publish: %v", err)
 		}
 
@@ -1781,7 +1790,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			t.Fatal(err)
 		}
 
-		err = alice.PublishTransaction(tx5)
+		err = alice.PublishTransaction(tx5, labels.UserSend)
 		if err != lnwallet.ErrDoubleSpend {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
@@ -1809,7 +1818,7 @@ func testPublishTransaction(r *rpctest.Harness,
 			expErr = nil
 			tx3Spend = tx6
 		}
-		err = alice.PublishTransaction(tx6)
+		err = alice.PublishTransaction(tx6, labels.UserSend)
 		if err != expErr {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}
@@ -1844,7 +1853,7 @@ func testPublishTransaction(r *rpctest.Harness,
 		}
 
 		// Expect rejection.
-		err = alice.PublishTransaction(tx7)
+		err = alice.PublishTransaction(tx7, labels.UserSend)
 		if err != lnwallet.ErrDoubleSpend {
 			t.Fatalf("expected ErrDoubleSpend, got: %v", err)
 		}

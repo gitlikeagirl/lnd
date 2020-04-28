@@ -318,7 +318,7 @@ func (*mockWalletController) ListTransactionDetails() ([]*lnwallet.TransactionDe
 }
 func (*mockWalletController) LockOutpoint(o wire.OutPoint)   {}
 func (*mockWalletController) UnlockOutpoint(o wire.OutPoint) {}
-func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx) error {
+func (m *mockWalletController) PublishTransaction(tx *wire.MsgTx, _ string) error {
 	m.publishedTransactions <- tx
 	return nil
 }

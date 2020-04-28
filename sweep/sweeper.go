@@ -14,6 +14,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -354,7 +355,7 @@ func (s *UtxoSweeper) Start() error {
 
 		// Error can be ignored. Because we are starting up, there are
 		// no pending inputs to update based on the publish result.
-		err := s.cfg.Wallet.PublishTransaction(lastTx)
+		err := s.cfg.Wallet.PublishTransaction(lastTx, labels.Sweep)
 		if err != nil && err != lnwallet.ErrDoubleSpend {
 			log.Errorf("last tx publish: %v", err)
 		}
@@ -987,7 +988,7 @@ func (s *UtxoSweeper) sweep(inputs inputSet, feeRate chainfee.SatPerKWeight,
 		}),
 	)
 
-	err = s.cfg.Wallet.PublishTransaction(tx)
+	err = s.cfg.Wallet.PublishTransaction(tx, labels.Sweep)
 
 	// In case of an unexpected error, don't try to recover.
 	if err != nil && err != lnwallet.ErrDoubleSpend {

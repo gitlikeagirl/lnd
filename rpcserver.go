@@ -44,6 +44,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -1130,7 +1131,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// As our sweep transaction was created, successfully, we'll
 		// now attempt to publish it, cancelling the sweep pkg to
 		// return all outputs if it fails.
-		err = wallet.PublishTransaction(sweepTxPkg.SweepTx)
+		err = wallet.PublishTransaction(
+			sweepTxPkg.SweepTx, labels.Sweep,
+		)
 		if err != nil {
 			sweepTxPkg.CancelSweepAttempt()
 

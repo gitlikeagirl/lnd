@@ -1339,7 +1339,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	// unexpected publication error, causing the state machine to halt.
 	expErr := errors.New("intentional publication error")
 	stateChan := make(chan ArbitratorState)
-	chanArb.cfg.PublishTx = func(*wire.MsgTx) error {
+	chanArb.cfg.PublishTx = func(*wire.MsgTx, string) error {
 		// When the force close tx is being broadcasted, check that the
 		// state is correct at that point.
 		select {

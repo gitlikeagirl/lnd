@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/lightningnetwork/lnd/labels"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -851,7 +853,7 @@ func (c *ChannelArbitrator) stateStep(
 
 		// At this point, we'll now broadcast the commitment
 		// transaction itself.
-		if err := c.cfg.PublishTx(closeTx); err != nil {
+		if err := c.cfg.PublishTx(closeTx, labels.CloseChannel); err != nil {
 			log.Errorf("ChannelArbitrator(%v): unable to broadcast "+
 				"close tx: %v", c.cfg.ChanPoint, err)
 			if err != lnwallet.ErrDoubleSpend {
