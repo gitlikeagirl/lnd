@@ -26,6 +26,7 @@ import (
 	"github.com/btcsuite/btcutil"
 	"github.com/btcsuite/btcutil/psbt"
 	"github.com/btcsuite/btcwallet/wallet/txauthor"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/runtime"
@@ -868,14 +869,14 @@ func addrPairsToOutputs(addrPairs map[string]int64) ([]*wire.TxOut, error) {
 // more addresses specified in the passed payment map. The payment map maps an
 // address to a specified output value to be sent to that address.
 func (r *rpcServer) sendCoinsOnChain(paymentMap map[string]int64,
-	feeRate chainfee.SatPerKWeight) (*chainhash.Hash, error) {
+	feeRate chainfee.SatPerKWeight, label string) (*chainhash.Hash, error) {
 
 	outputs, err := addrPairsToOutputs(paymentMap)
 	if err != nil {
 		return nil, err
 	}
 
-	tx, err := r.server.cc.wallet.SendOutputs(outputs, feeRate)
+	tx, err := r.server.cc.wallet.SendOutputs(outputs, feeRate, label)
 	if err != nil {
 		return nil, err
 	}
@@ -1046,6 +1047,23 @@ func (r *rpcServer) EstimateFee(ctx context.Context,
 	return resp, nil
 }
 
+// getLabel validates a user provided transaction label, and replaces it with
+// a generic label if no label was provided.
+func getLabel(label string) (string, error) {
+	if len(label) > wtxmgr.TxLabelLimit {
+		return "", fmt.Errorf("label length: %v exceeds "+
+			"limit of %v", len(label), wtxmgr.TxLabelLimit)
+	}
+
+	// If no label was provided by the user, add the generic user
+	// send label.
+	if len(label) == 0 {
+		return labels.UserSend, nil
+	}
+
+	return label, nil
+}
+
 // SendCoins executes a request to send coins to a particular address. Unlike
 // SendMany, this RPC call only allows creating a single output at a time.
 func (r *rpcServer) SendCoins(ctx context.Context,
@@ -1091,6 +1109,11 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		return nil, fmt.Errorf("cannot send coins to pubkeys")
 	}
 
+	label, err := getLabel(in.Label)
+	if err != nil {
+		return nil, err
+	}
+
 	var txid *chainhash.Hash
 
 	wallet := r.server.cc.wallet
@@ -1131,9 +1154,7 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// As our sweep transaction was created, successfully, we'll
 		// now attempt to publish it, cancelling the sweep pkg to
 		// return all outputs if it fails.
-		err = wallet.PublishTransaction(
-			sweepTxPkg.SweepTx, labels.Sweep,
-		)
+		err = wallet.PublishTransaction(sweepTxPkg.SweepTx, label)
 		if err != nil {
 			sweepTxPkg.CancelSweepAttempt()
 
@@ -1151,7 +1172,9 @@ func (r *rpcServer) SendCoins(ctx context.Context,
 		// while we instruct the wallet to send this transaction.
 		paymentMap := map[string]int64{targetAddr.String(): in.Amount}
 		err := wallet.WithCoinSelectLock(func() error {
-			newTXID, err := r.sendCoinsOnChain(paymentMap, feePerKw)
+			newTXID, err := r.sendCoinsOnChain(
+				paymentMap, feePerKw, label,
+			)
 			if err != nil {
 				return err
 			}
@@ -1188,6 +1211,11 @@ func (r *rpcServer) SendMany(ctx context.Context,
 		return nil, err
 	}
 
+	label, err := getLabel(in.Label)
+	if err != nil {
+		return nil, err
+	}
+
 	rpcsLog.Infof("[sendmany] outputs=%v, sat/kw=%v",
 		spew.Sdump(in.AddrToAmount), int64(feePerKw))
 
@@ -1199,7 +1227,7 @@ func (r *rpcServer) SendMany(ctx context.Context,
 	wallet := r.server.cc.wallet
 	err = wallet.WithCoinSelectLock(func() error {
 		sendManyTXID, err := r.sendCoinsOnChain(
-			in.AddrToAmount, feePerKw,
+			in.AddrToAmount, feePerKw, label,
 		)
 		if err != nil {
 			return err

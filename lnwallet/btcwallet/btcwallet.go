@@ -290,7 +290,7 @@ func (b *BtcWallet) IsOurAddress(a btcutil.Address) bool {
 //
 // This is a part of the WalletController interface.
 func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
-	feeRate chainfee.SatPerKWeight) (*wire.MsgTx, error) {
+	feeRate chainfee.SatPerKWeight, label string) (*wire.MsgTx, error) {
 
 	// Convert our fee rate from sat/kw to sat/kb since it's required by
 	// SendOutputs.
@@ -300,8 +300,10 @@ func (b *BtcWallet) SendOutputs(outputs []*wire.TxOut,
 	if len(outputs) < 1 {
 		return nil, lnwallet.ErrNoOutputs
 	}
-	// TODO(carla): add label parameter in following commit.
-	return b.wallet.SendOutputs(outputs, defaultAccount, 1, feeSatPerKB, "")
+
+	return b.wallet.SendOutputs(
+		outputs, defaultAccount, 1, feeSatPerKB, label,
+	)
 }
 
 // CreateSimpleTx creates a Bitcoin transaction paying to the specified
