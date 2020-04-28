@@ -27,6 +27,7 @@ func walletCommands() []cli.Command {
 				pendingSweepsCommand,
 				bumpFeeCommand,
 				bumpCloseFeeCommand,
+				labelTxCommand,
 			},
 		},
 	}
@@ -299,4 +300,66 @@ func getWaitingCloseCommitments(client lnrpc.LightningClient,
 	}
 
 	return nil, errors.New("channel not found")
+}
+
+var labelTxCommand = cli.Command{
+	Name:      "labeltx",
+	Usage:     "adds a label to a transaction",
+	ArgsUsage: "txid",
+	Description: `
+	Add a label to a transaction. If the transaction already has a label, 
+	this call will fail unless the overwrite option is set. The label is 
+	limited to 500 characters.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: "label",
+			Usage: "the label to add to the tx, limited to 500 " +
+				"chars",
+		},
+		cli.BoolFlag{
+			Name:  "overwrite",
+			Usage: "set to overwrite existing labels",
+		},
+	},
+	Action: actionDecorator(labelTransaction),
+}
+
+func labelTransaction(ctx *cli.Context) error {
+	// Display the command's help message if we do not have the expected
+	// number of arguments/flags.
+	if ctx.NArg() != 1 {
+		return cli.ShowCommandHelp(ctx, "labeltx")
+	}
+
+	// Get the transaction id and check that it is a valid hash.
+	txid := ctx.Args().Get(0)
+	hash, err := chainhash.NewHashFromStr(txid)
+	if err != nil {
+		return err
+	}
+
+	label := ctx.String("label")
+	if len(label) == 0 {
+		return fmt.Errorf("a non-empty label is required")
+	}
+
+	walletClient, cleanUp := getWalletClient(ctx)
+	defer cleanUp()
+
+	ctxb := context.Background()
+	_, err = walletClient.LabelTransaction(
+		ctxb, &walletrpc.LabelTransactionRequest{
+			Txid:      hash[:],
+			Label:     label,
+			Overwrite: ctx.Bool("overwrite"),
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	fmt.Printf("Transaction: %v labelled with: %v", txid, label)
+
+	return nil
 }
