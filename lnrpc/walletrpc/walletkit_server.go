@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/labels"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -268,7 +270,19 @@ func (w *WalletKit) PublishTransaction(ctx context.Context,
 		return nil, err
 	}
 
-	err := w.cfg.Wallet.PublishTransaction(tx)
+	if len(req.Label) > wtxmgr.TxLabelLimit {
+		return nil, fmt.Errorf("label length: %v exceeds "+
+			"limit of %v", len(req.Label), wtxmgr.TxLabelLimit)
+	}
+
+	// If no label was provided by the user, add the generic user
+	// send label.
+	label := req.Label
+	if len(label) == 0 {
+		label = labels.UserSend
+	}
+
+	err := w.cfg.Wallet.PublishTransaction(tx, label)
 	if err != nil {
 		return nil, err
 	}
@@ -304,7 +318,7 @@ func (w *WalletKit) SendOutputs(ctx context.Context,
 	// Now that we have the outputs mapped, we can request that the wallet
 	// attempt to create this transaction.
 	tx, err := w.cfg.Wallet.SendOutputs(
-		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw),
+		outputsToCreate, chainfee.SatPerKWeight(req.SatPerKw), req.Label,
 	)
 	if err != nil {
 		return nil, err
