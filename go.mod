@@ -68,9 +68,9 @@ replace github.com/lightningnetwork/lnd/cert => ./cert
 
 replace git.schwanenlied.me/yawning/bsaes.git => github.com/Yawning/bsaes v0.0.0-20180720073208-c0276d75487e
 
-replace github.com/btcsuite/btcwallet => github.com/carlaKC/btcwallet v0.11.1-0.20200421091239-6e89fe85da1f
+replace github.com/btcsuite/btcwallet => github.com/carlaKC/btcwallet v0.11.1-0.20200428073545-6610c58d494a
 
-replace github.com/btcsuite/btcwallet/wtxmgr => github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200421091239-6e89fe85da1f
+replace github.com/btcsuite/btcwallet/wtxmgr => github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200428073545-6610c58d494a
 
 // Pin this version that we know works explicitly, even though the
 // btcsuite/btcutil package requests a newer version.

@@ -59,10 +59,10 @@ github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 h1:R8vQdOQdZ9Y3
 github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792/go.mod h1:ghJtEyQwv5/p4Mg4C0fgbePVuGr935/5ddU9Z3TmDRY=
 github.com/btcsuite/winsvc v1.0.0 h1:J9B4L7e3oqhXOcm+2IuNApwzQec85lE+QaikUcCs+dk=
 github.com/btcsuite/winsvc v1.0.0/go.mod h1:jsenWakMcC0zFBFurPLEAyrnc/teJEM1O46fmI40EZs=
-github.com/carlaKC/btcwallet v0.11.1-0.20200421091239-6e89fe85da1f h1:erIBvhYZSuyeFyLYaHWPC1c5yeJJJtyFxa/yh8CH1oo=
-github.com/carlaKC/btcwallet v0.11.1-0.20200421091239-6e89fe85da1f/go.mod h1:9fJNm1aXi4q9P5Nk23mmqppCy1Le3f2/JMWj9UXKkCc=
-github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200421091239-6e89fe85da1f h1:TwYizllAwDShwdOdEtYPKDhbcGr37a0B98stZYblA70=
-github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200421091239-6e89fe85da1f/go.mod h1:OwC0W0HhUszbWdvJvH6xvgabKSJ0lXl11YbmmqF9YXQ=
+github.com/carlaKC/btcwallet v0.11.1-0.20200428073545-6610c58d494a h1:6LyL4uIXUEtimkSIfbR+rX520ieUOevDjnGUwyrOomo=
+github.com/carlaKC/btcwallet v0.11.1-0.20200428073545-6610c58d494a/go.mod h1:9fJNm1aXi4q9P5Nk23mmqppCy1Le3f2/JMWj9UXKkCc=
+github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200428073545-6610c58d494a h1:9nG+eiq6piIvy+lJRMFFv7jNPA/ihH2ZupwY0x6x5Kg=
+github.com/carlaKC/btcwallet/wtxmgr v1.0.1-0.20200428073545-6610c58d494a/go.mod h1:OwC0W0HhUszbWdvJvH6xvgabKSJ0lXl11YbmmqF9YXQ=
 github.com/cespare/xxhash v1.1.0/go.mod h1:XrSqR1VqqWfGrhpAt58auRo0WTKS1nRRg3ghfAqPWnc=
 github.com/client9/misspell v0.3.4/go.mod h1:qj6jICC3Q7zFZvVWo7KLAzC3yx5G7kyvSDkc90ppPyw=
 github.com/coreos/bbolt v1.3.3 h1:n6AiVyVRKQFNb6mJlwESEvvLoDyiTzXX7ORAUlkeBdY=
