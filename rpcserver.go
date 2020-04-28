@@ -4612,6 +4612,7 @@ func (r *rpcServer) GetTransactions(ctx context.Context,
 			TotalFees:        tx.TotalFees,
 			DestAddresses:    destAddresses,
 			RawTxHex:         hex.EncodeToString(tx.RawTx),
+			Label:            tx.Label,
 		}
 	}
 
