@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -157,7 +160,11 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 		return nil, err
 	}
 	h.resolved = true
-	return nil, h.Checkpoint(h, nil)
+
+	return nil, h.Checkpoint(h, h.putResolverReport(
+		channeldb.ResolverOutcomeOutgoingHtlcClaim,
+		commitSpend.SpenderTxHash,
+	))
 }
 
 // chainDetailsToWatch returns the output and script which we use to watch for
@@ -262,6 +269,8 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		}
 	}
 
+	var spendTxID *chainhash.Hash
+
 	// waitForOutputResolution waits for the HTLC output to be fully
 	// resolved. The output is considered fully resolved once it has been
 	// spent, and the spending transaction has been fully confirmed.
@@ -278,10 +287,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		}
 
 		select {
-		case _, ok := <-spendNtfn.Spend:
+		case spendDetail, ok := <-spendNtfn.Spend:
 			if !ok {
 				return errResolverShuttingDown
 			}
+			spendTxID = spendDetail.SpenderTxHash
 
 		case <-h.quit:
 			return errResolverShuttingDown
@@ -320,6 +330,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 		if !ok {
 			return nil, errResolverShuttingDown
 		}
+		spendTxID = spend.SpenderTxHash
 
 	case <-h.quit:
 		return nil, errResolverShuttingDown
@@ -364,9 +375,11 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	}
 
 	// With the clean up message sent, we'll now mark the contract
-	// resolved, and wait.
+	// resolved, record the timeout and the sweep txid on disk, and wait.
 	h.resolved = true
-	return nil, h.Checkpoint(h, nil)
+	return nil, h.Checkpoint(h, h.putResolverReport(
+		channeldb.ResolverOutcomeOutgoingHtlcTimeout, spendTxID,
+	))
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -413,6 +426,24 @@ func (h *htlcTimeoutResolver) Encode(w io.Writer) error {
 	}
 
 	return nil
+}
+
+// putResolverReport is a helper which returns a function which will write
+// the outcome of the resolver to disk.
+func (h *htlcTimeoutResolver) putResolverReport(outcome channeldb.ResolverOutcome,
+	spendTx *chainhash.Hash) func(tx kvdb.RwTx) error {
+
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+
+	return func(tx kvdb.RwTx) error {
+		return h.PutResolverReport(
+			tx, &channeldb.ResolverReport{
+				OutPoint:        h.htlcResolution.ClaimOutpoint,
+				Amount:          amt,
+				ResolverOutcome: outcome,
+				SpendTxID:       spendTx,
+			})
+	}
 }
 
 // newTimeoutResolverFromReader attempts to decode an encoded ContractResolver

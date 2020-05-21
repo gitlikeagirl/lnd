@@ -87,6 +87,14 @@ const (
 	// ResolverTypeOutgoingHtlcTimeoutTx indicates that we broadcast the
 	// first stage of a two stage htlc timeout for an outgoing htlc.
 	ResolverTypeOutgoingHtlcTimeoutTx
+
+	// ResolverOutcomeOutgoingHtlcTimeout indicates the we successfully
+	// timed out one of our outgoing htlcs on chain.
+	ResolverOutcomeOutgoingHtlcTimeout
+
+	// ResolverOutcomeOutgoingHtlcClaim indicates that the remote party
+	// claimed one of our outgoing htlcs on chain with the preimage.
+	ResolverOutcomeOutgoingHtlcClaim
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
