@@ -1382,6 +1382,67 @@ message ChannelCloseSummary {
     force closes, although only one party's close will be confirmed on chain.
     */
     Initiator close_initiator = 12;
+
+    repeated Resolution resolutions = 13;
+}
+
+message Resolution {
+    enum ResolutionType {
+        UNKNOWN = 0;
+
+        // We swept our anchor output.
+        ANCHOR_RECOVERED = 1;
+
+        // Somebody else swept our anchor output.
+        ANCHOR_LOST = 2;
+
+        // We gave up on sweeping our anchor output.
+        ANCHOR_UNCLAIMED = 3;
+
+        // We timed out one of our outgoing htlcs.
+        OUTGOING_TIMEOUT = 4;
+
+        // The remote party claimed one of our outgoing htlcs using the
+        // preimage.
+        OUTGOING_CLAIM = 5;
+
+        // We claimed an incoming htlc using the preimage.
+        INCOMING_CLAIM = 6;
+
+        // An incoming htlc timed out on chain, so we stopped waiting for the
+        // preimage to be revealed.
+        INCOMING_TIMEOUT = 7;
+
+        // Our peer tried to resolve one of our incoming htlcs on chain but we
+        // failed it.
+        INCOMING_FAILED = 8;
+
+        // We swept our time locked commitment output on chain.
+        COMMIT_SWEEP = 9;
+
+        // We broadcast the first stage of a two stage htlc claim for an
+        // incoming htlc on our commitment.
+        SUCCESS_TX = 10;
+
+        // We broadcast the first stage of a two stage htlc timeout for an
+        // outgoing htlc on our commitment.
+        TIMEOUT_TX = 11;
+
+        INVALID_HTLC = 12;
+    }
+
+    // The outcome of our the on chain action that resolved the outpoint.
+    ResolutionType type = 1;
+
+    // The outpoint that was spent by the resolution.
+    OutPoint outpoint = 2;
+
+    // The amount that was claimed by the resolution.
+    uint64 amount_sat = 3;
+
+    // The hex-encoded transaction ID of the sweep transaction that spent the
+    // output.
+    string sweep_txid = 4;
 }
 
 message ClosedChannelsRequest {
