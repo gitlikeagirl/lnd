@@ -1713,6 +1713,26 @@
         }
       }
     },
+    "ResolutionResolutionType": {
+      "type": "string",
+      "enum": [
+        "UNKNOWN",
+        "ANCHOR_RECOVERED",
+        "ANCHOR_LOST",
+        "ANCHOR_UNCLAIMED",
+        "OUTGOING_TIMEOUT",
+        "OUTGOING_CLAIM",
+        "INCOMING_CLAIM",
+        "INCOMING_TIMEOUT",
+        "INCOMING_FAILED",
+        "COMMIT_SWEEP",
+        "SUCCESS_TX",
+        "TIMEOUT_TX",
+        "INVALID_HTLC"
+      ],
+      "default": "UNKNOWN",
+      "description": " - ANCHOR_RECOVERED: We swept our anchor output.\n - ANCHOR_LOST: Somebody else swept our anchor output.\n - ANCHOR_UNCLAIMED: We gave up on sweeping our anchor output.\n - OUTGOING_TIMEOUT: We timed out one of our outgoing htlcs.\n - OUTGOING_CLAIM: The remote party claimed one of our outgoing htlcs using the\npreimage.\n - INCOMING_CLAIM: We claimed an incoming htlc using the preimage.\n - INCOMING_TIMEOUT: An incoming htlc timed out on chain, so we stopped waiting for the\npreimage to be revealed.\n - INCOMING_FAILED: Our peer tried to resolve one of our incoming htlcs on chain but we\nfailed it.\n - COMMIT_SWEEP: We swept our time locked commitment output on chain.\n - SUCCESS_TX: We broadcast the first stage of a two stage htlc claim for an\nincoming htlc on our commitment.\n - TIMEOUT_TX: We broadcast the first stage of a two stage htlc timeout for an\noutgoing htlc on our commitment.\n - INVALID_HTLC: We previously locked in an invalid htlc that we now cannot resolve,\nso we take no action."
+    },
     "lnrpcAbandonChannelResponse": {
       "type": "object"
     },
@@ -2134,6 +2154,12 @@
         "close_initiator": {
           "$ref": "#/definitions/lnrpcInitiator",
           "description": "Close initiator indicates which party initiated the close. This value will\nbe unknown for channels that were cooperatively closed before we started\ntracking cooperative close initiators. Note that this indicates which party\ninitiated a close, and it is possible for both to initiate cooperative or\nforce closes, although only one party's close will be confirmed on chain."
+        },
+        "resolutions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcResolution"
+          }
         }
       }
     },
@@ -4101,6 +4127,28 @@
           "type": "string",
           "format": "byte",
           "description": "A raw PSBT that contains the pending channel output. If a base PSBT was\nprovided in the PsbtShim, this is the base PSBT with one additional output.\nIf no base PSBT was specified, this is an otherwise empty PSBT with exactly\none output."
+        }
+      }
+    },
+    "lnrpcResolution": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "$ref": "#/definitions/ResolutionResolutionType",
+          "description": "The outcome of our the on chain action that resolved the outpoint."
+        },
+        "outpoint": {
+          "$ref": "#/definitions/lnrpcOutPoint",
+          "description": "The outpoint that was spent by the resolution."
+        },
+        "amount_sat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount that was claimed by the resolution."
+        },
+        "sweep_txid": {
+          "type": "string",
+          "description": "The hex-encoded transaction ID of the sweep transaction that spent the\noutput."
         }
       }
     },
