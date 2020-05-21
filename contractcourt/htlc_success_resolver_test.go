@@ -1,9 +1,11 @@
 package contractcourt
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -108,6 +110,7 @@ func TestSingleStageSuccess(t *testing.T) {
 		TxIn:  []*wire.TxIn{{}},
 		TxOut: []*wire.TxOut{{}},
 	}
+	sweepHash := sweepTx.TxHash()
 
 	// singleStageResolution is a resolution for a htlc on the remote
 	// party's commitment.
@@ -125,8 +128,15 @@ func TestSingleStageSuccess(t *testing.T) {
 		}
 	}
 
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        htlcOutpoint,
+		Amount:          btcutil.Amount(testSignDesc.Output.Value),
+		ResolverOutcome: channeldb.ResolverOutcomeIncomingHtlcClaimed,
+		SpendTxID:       &sweepHash,
+	}
+
 	testHtlcSuccess(
-		t, singleStageResolution, resolve, sweepTx,
+		t, singleStageResolution, resolve, sweepTx, expectedReport,
 	)
 }
 
@@ -161,11 +171,20 @@ func TestSecondStageResolution(t *testing.T) {
 		}
 	}
 
-	testHtlcSuccess(t, twoStageResolution, resolve, sweepTx)
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        htlcOutpoint,
+		Amount:          btcutil.Amount(testSignDesc.Output.Value),
+		ResolverOutcome: channeldb.ResolverOutcomeIncomingHtlcClaimed,
+		SpendTxID:       &sweepHash,
+	}
+
+	testHtlcSuccess(t, twoStageResolution, resolve, sweepTx, expectedReport)
 }
 
 func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
-	resolve func(*htlcSuccessResolverTestContext), sweepTx *wire.MsgTx) {
+	resolve func(*htlcSuccessResolverTestContext),
+	sweepTx *wire.MsgTx, report *channeldb.ResolverReport) {
+
 	defer timeout(t)()
 
 	ctx := newHtlcSuccessResolverTextContext(t, resolution)
@@ -184,4 +203,13 @@ func testHtlcSuccess(t *testing.T, resolution lnwallet.IncomingHtlcResolution,
 
 	// Wait for the resolver to fully complete.
 	ctx.waitForResult()
+
+	// Finally, check that we have the report we expect.
+	if len(ctx.reports) != 1 {
+		t.Fatalf("expected 1 report, got: %v", len(ctx.reports))
+	}
+
+	if !reflect.DeepEqual(ctx.reports[0], report) {
+		t.Fatalf("expected: %v, got: %v", report, ctx.reports[0])
+	}
 }
