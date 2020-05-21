@@ -89,7 +89,21 @@ type outgoingResolverTestContext struct {
 	t                  *testing.T
 }
 
-func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
+// outgoingResolverOption is a functional option which can be applied
+// to an outgoing resolver test context to customize default test context.
+type outgoingResolverOption func(ctx *outgoingResolverTestContext)
+
+// resolutionOption sets the htlcResolution on an incoming resolver test
+// context.
+func outgoingResolutionOption(res lnwallet.OutgoingHtlcResolution) outgoingResolverOption {
+	return func(ctx *outgoingResolverTestContext) {
+		ctx.resolver.htlcResolution = res
+	}
+}
+
+func newOutgoingResolverTestContext(t *testing.T,
+	opts ...outgoingResolverOption) *outgoingResolverTestContext {
+
 	notifier := &mockNotifier{
 		epochChan: make(chan *chainntnfs.BlockEpoch),
 		spendChan: make(chan *chainntnfs.SpendDetail),
@@ -168,6 +182,11 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 				OnionBlob: testOnionBlob,
 			},
 		},
+	}
+
+	// Apply all functional options to test context.
+	for _, opt := range opts {
+		opt(testCtx)
 	}
 
 	return testCtx
