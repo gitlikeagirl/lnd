@@ -223,6 +223,7 @@ type incomingResolverTestContext struct {
 	registry       *mockRegistry
 	witnessBeacon  *mockWitnessBeacon
 	resolver       *htlcIncomingContestResolver
+	reports        []*channeldb.ResolverReport
 	notifier       *mockNotifier
 	onionProcessor *mockOnionProcessor
 	resolveErr     chan error
@@ -245,12 +246,27 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 
 	checkPointChan := make(chan struct{}, 1)
 
+	testCtx := &incomingResolverTestContext{
+		registry:       registry,
+		witnessBeacon:  witnessBeacon,
+		notifier:       notifier,
+		onionProcessor: onionProcessor,
+		t:              t,
+	}
+
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:       notifier,
 			PreimageDB:     witnessBeacon,
 			Registry:       registry,
 			OnionProcessor: onionProcessor,
+		},
+		PutResolverReport: func(_ kvdb.RwTx,
+			report *channeldb.ResolverReport) error {
+
+			testCtx.reports = append(testCtx.reports, report)
+
+			return nil
 		},
 	}
 
@@ -270,7 +286,7 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 			return nil
 		},
 	}
-	resolver := &htlcIncomingContestResolver{
+	testCtx.resolver = &htlcIncomingContestResolver{
 		htlcSuccessResolver: htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      lnwallet.IncomingHtlcResolution{},
@@ -282,14 +298,7 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 		htlcExpiry: testHtlcExpiry,
 	}
 
-	return &incomingResolverTestContext{
-		registry:       registry,
-		witnessBeacon:  witnessBeacon,
-		resolver:       resolver,
-		notifier:       notifier,
-		onionProcessor: onionProcessor,
-		t:              t,
-	}
+	return testCtx
 }
 
 func (i *incomingResolverTestContext) resolve() {

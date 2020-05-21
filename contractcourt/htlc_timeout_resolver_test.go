@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -226,6 +227,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		incubateChan := make(chan struct{}, 1)
 		resolutionChan := make(chan ResolutionMsg, 1)
 
+		var reports []*channeldb.ResolverReport
+
 		chainCfg := ChannelArbitratorConfig{
 			ChainArbitratorConfig: ChainArbitratorConfig{
 				Notifier:   notifier,
@@ -248,6 +251,13 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 					resolutionChan <- msgs[0]
 					return nil
 				},
+			},
+			PutResolverReport: func(_ kvdb.RwTx,
+				report *channeldb.ResolverReport) error {
+
+				reports = append(reports, report)
+
+				return nil
 			},
 		}
 

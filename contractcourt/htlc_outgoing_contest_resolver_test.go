@@ -85,6 +85,7 @@ type outgoingResolverTestContext struct {
 	preimageDB         *mockWitnessBeacon
 	resolverResultChan chan resolveResult
 	resolutionChan     chan ResolutionMsg
+	reports            []*channeldb.ResolverReport
 	t                  *testing.T
 }
 
@@ -102,6 +103,13 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 
 	onionProcessor := &mockOnionProcessor{}
 
+	testCtx := &outgoingResolverTestContext{
+		notifier:       notifier,
+		preimageDB:     preimageDB,
+		resolutionChan: resolutionChan,
+		t:              t,
+	}
+
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier:   notifier,
@@ -117,6 +125,13 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 				return nil
 			},
 			OnionProcessor: onionProcessor,
+		},
+		PutResolverReport: func(_ kvdb.RwTx,
+			report *channeldb.ResolverReport) error {
+
+			testCtx.reports = append(testCtx.reports, report)
+
+			return nil
 		},
 	}
 
@@ -144,7 +159,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 		},
 	}
 
-	resolver := &htlcOutgoingContestResolver{
+	testCtx.resolver = &htlcOutgoingContestResolver{
 		htlcTimeoutResolver: htlcTimeoutResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
 			htlcResolution:      outgoingRes,
@@ -155,13 +170,7 @@ func newOutgoingResolverTestContext(t *testing.T) *outgoingResolverTestContext {
 		},
 	}
 
-	return &outgoingResolverTestContext{
-		resolver:       resolver,
-		notifier:       notifier,
-		preimageDB:     preimageDB,
-		resolutionChan: resolutionChan,
-		t:              t,
-	}
+	return testCtx
 }
 
 func (i *outgoingResolverTestContext) resolve() {
