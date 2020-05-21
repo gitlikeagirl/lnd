@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/davecgh/go-spew/spew"
@@ -202,6 +203,19 @@ type ContractReport struct {
 	// RecoveredBalance is the total value that has been successfully swept
 	// back to the user's wallet.
 	RecoveredBalance btcutil.Amount
+}
+
+// resolverReport creates a resolve report using some of the information in the
+// contraxt report.
+func (c *ContractReport) resolverReport(spendTx *chainhash.Hash,
+	outcome channeldb.ResolverOutcome) *channeldb.ResolverReport {
+
+	return &channeldb.ResolverReport{
+		OutPoint:        c.Outpoint,
+		Amount:          c.Amount,
+		ResolverOutcome: outcome,
+		SpendTxID:       spendTx,
+	}
 }
 
 // htlcSet represents the set of active HTLCs on a given commitment
