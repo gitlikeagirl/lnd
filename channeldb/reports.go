@@ -79,6 +79,10 @@ const (
 	// ResolverOutcomeIncomingHtlcFailed indicates that our peer tried to
 	// settle an incoming htlc on chain, but we failed their attempt.
 	ResolverOutcomeIncomingHtlcFailed
+
+	// ResolverOutcomeIncomingHtlcClaimed indicates that we claimed an
+	// incoming htlc with our preimage on chain.
+	ResolverOutcomeIncomingHtlcClaimed
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
