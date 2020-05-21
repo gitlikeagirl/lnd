@@ -231,7 +231,20 @@ type incomingResolverTestContext struct {
 	t              *testing.T
 }
 
-func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
+// incomingResolverOption is a functional option which can be applied
+// to an incoming resolver test context to customize default test context.
+type incomingResolverOption func(ctx *incomingResolverTestContext)
+
+// resolutionOption sets the htlcResolution on an incoming resolver test
+// context.
+func resolutionOption(res lnwallet.IncomingHtlcResolution) incomingResolverOption {
+	return func(ctx *incomingResolverTestContext) {
+		ctx.resolver.htlcResolution = res
+	}
+}
+
+func newIncomingResolverTestContext(t *testing.T,
+	ctxOptions ...incomingResolverOption) *incomingResolverTestContext {
 	notifier := &mockNotifier{
 		epochChan: make(chan *chainntnfs.BlockEpoch),
 		spendChan: make(chan *chainntnfs.SpendDetail),
@@ -296,6 +309,11 @@ func newIncomingResolverTestContext(t *testing.T) *incomingResolverTestContext {
 			},
 		},
 		htlcExpiry: testHtlcExpiry,
+	}
+
+	// Apply options, if present, to the default context.
+	for _, opt := range ctxOptions {
+		opt(testCtx)
 	}
 
 	return testCtx
