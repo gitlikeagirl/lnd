@@ -62,6 +62,23 @@ const (
 	// ResolverOutcomeAnchorUnclaimed indicates that the anchor was left
 	// unspent.
 	ResolverOutcomeAnchorUnclaimed
+
+	// ResolverOutcomeInvalidIncomingHtlc indicates that we previously
+	// locked in an invalid htlc that we now cannot resolve.
+	ResolverOutcomeInvalidIncomingHtlc
+
+	// ResolverOutcomeIncomingHtlcSuccessTx indicates that we broadcast the
+	// first stage of a two stage htlc claim for an incoming htlc with its
+	// preimage.
+	ResolverOutcomeIncomingHtlcSuccessTx
+
+	// ResolverOutcomeIncomingHtlcTimedOut indicates that an incoming htlc
+	// timed out on chain, so we stopped waiting for the preimage.
+	ResolverOutcomeIncomingHtlcTimedOut
+
+	// ResolverOutcomeIncomingHtlcFailed indicates that our peer tried to
+	// settle an incoming htlc on chain, but we failed their attempt.
+	ResolverOutcomeIncomingHtlcFailed
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"io"
 	"io/ioutil"
+	"reflect"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -195,6 +198,127 @@ func TestHtlcIncomingResolverExitCancelHodl(t *testing.T) {
 	ctx.waitForResult(false)
 }
 
+// TestTwoStageClaimReporting tests creation of reports when we resolve an
+// incoming htlc in two stages.
+func TestTwoStageClaimReporting(t *testing.T) {
+	var (
+		successTxAmount   int64 = 300
+		successTxOutpoint       = testChanPoint1
+	)
+
+	// Create a non-nil success tx to test two stage htlc resolutions.
+	successTx := wire.NewMsgTx(2)
+
+	// We create a txin with a non-nil witness because we will add the
+	// preimage to Witness[3] if we receive it.
+	txin := &wire.TxIn{
+		PreviousOutPoint: successTxOutpoint,
+		Witness:          [][]byte{{}, {}, {}, {}},
+	}
+	successTx.AddTxIn(txin)
+	successTx.AddTxOut(&wire.TxOut{
+		Value: successTxAmount,
+	})
+
+	res := lnwallet.IncomingHtlcResolution{
+		SignedSuccessTx: successTx,
+		ClaimOutpoint:   wire.OutPoint{},
+		SweepSignDesc:   testSignDesc,
+	}
+
+	// Create a witness beacon which already has knowledge of our preimage.
+	witnessBeaconWithPreimage := newMockWitnessBeacon()
+	witnessBeaconWithPreimage.lookupPreimage[testResHash] = testResPreimage
+
+	tests := []struct {
+		name string
+
+		// setupCtx updates our test context to fit our requirements.
+		setupCtx func(ctx *incomingResolverTestContext)
+
+		// sendResolution sends an appropriate resolution which will
+		// resolve the first stage of the resolver.
+		stageOneResolution func(ctx *incomingResolverTestContext)
+	}{
+		{
+			name:     "settle htlc",
+			setupCtx: func(ctx *incomingResolverTestContext) {},
+			stageOneResolution: func(ctx *incomingResolverTestContext) {
+				notifyData := <-ctx.registry.notifyChan
+				notifyData.hodlChan <- invoices.NewSettleResolution(
+					testResPreimage, testResCircuitKey, testAcceptHeight,
+					invoices.ResultReplayToSettled,
+				)
+			},
+		},
+		{
+			name:     "preimage notification received",
+			setupCtx: func(ctx *incomingResolverTestContext) {},
+			stageOneResolution: func(ctx *incomingResolverTestContext) {
+				ctx.witnessBeacon.preImageUpdates <- testResPreimage
+			},
+		},
+		{
+			name:               "preimage already known",
+			stageOneResolution: func(_ *incomingResolverTestContext) {},
+			setupCtx: func(ctx *incomingResolverTestContext) {
+				ctx.witnessBeacon.lookupPreimage[testResHash] = testResPreimage
+			},
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			defer timeout(t)()
+
+			// Create a new incoming resolver test context with an
+			// incoming resolution that has a non-nil success tx.
+			ctx := newIncomingResolverTestContext(
+				t, resolutionOption(res),
+			)
+
+			test.setupCtx(ctx)
+
+			// Start the resolver and run our stage one resolution
+			// function which will resolve the first stage of our
+			// two stage htlc claim process.
+			ctx.resolve()
+			test.stageOneResolution(ctx)
+
+			// Wait for a result from our first resolution. Since we
+			// are testing two stage claim, we always expect another
+			// resolver.
+			ctx.waitForResult(true)
+
+			// At this stage we should have one report which
+			// reflects that we published the htlc success
+			// transaction.
+			if len(ctx.reports) != 1 {
+				t.Fatalf("expected 1 report, got: %v",
+					len(ctx.reports))
+			}
+
+			outcome := channeldb.ResolverOutcomeIncomingHtlcSuccessTx
+			successHash := successTx.TxHash()
+
+			expectedReport := &channeldb.ResolverReport{
+				OutPoint:        successTxOutpoint,
+				Amount:          btcutil.Amount(successTxAmount),
+				ResolverOutcome: outcome,
+				SpendTxID:       &successHash,
+			}
+
+			if !reflect.DeepEqual(ctx.reports[0], expectedReport) {
+				t.Fatalf("expected: %v, got: %v", expectedReport,
+					ctx.reports[0])
+			}
+		})
+	}
+}
+
 type mockHopIterator struct {
 	hop.Iterator
 }
@@ -302,7 +426,9 @@ func newIncomingResolverTestContext(t *testing.T,
 	testCtx.resolver = &htlcIncomingContestResolver{
 		htlcSuccessResolver: htlcSuccessResolver{
 			contractResolverKit: *newContractResolverKit(cfg),
-			htlcResolution:      lnwallet.IncomingHtlcResolution{},
+			htlcResolution: lnwallet.IncomingHtlcResolution{
+				SweepSignDesc: testSignDesc,
+			},
 			htlc: channeldb.HTLC{
 				RHash:     testResHash,
 				OnionBlob: testOnionBlob,
