@@ -157,7 +157,7 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 		return nil, err
 	}
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return nil, h.Checkpoint(h, nil)
 }
 
 // chainDetailsToWatch returns the output and script which we use to watch for
@@ -256,7 +256,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 
 		h.outputIncubating = true
 
-		if err := h.Checkpoint(h); err != nil {
+		if err := h.Checkpoint(h, nil); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
 			return nil, err
 		}
@@ -366,7 +366,7 @@ func (h *htlcTimeoutResolver) Resolve() (ContractResolver, error) {
 	// With the clean up message sent, we'll now mark the contract
 	// resolved, and wait.
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return nil, h.Checkpoint(h, nil)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

@@ -146,7 +146,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 			// With the sweep transaction signed, we'll now
 			// Checkpoint our state.
-			if err := h.Checkpoint(h); err != nil {
+			if err := h.Checkpoint(h, nil); err != nil {
 				log.Errorf("unable to Checkpoint: %v", err)
 				return nil, err
 			}
@@ -189,7 +189,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 		// Once the transaction has received a sufficient number of
 		// confirmations, we'll mark ourselves as fully resolved and exit.
 		h.resolved = true
-		return nil, h.Checkpoint(h)
+		return nil, h.Checkpoint(h, nil)
 	}
 
 	log.Infof("%T(%x): broadcasting second-layer transition tx: %v",
@@ -221,7 +221,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 
 		h.outputIncubating = true
 
-		if err := h.Checkpoint(h); err != nil {
+		if err := h.Checkpoint(h, nil); err != nil {
 			log.Errorf("unable to Checkpoint: %v", err)
 			return nil, err
 		}
@@ -252,7 +252,7 @@ func (h *htlcSuccessResolver) Resolve() (ContractResolver, error) {
 	}
 
 	h.resolved = true
-	return nil, h.Checkpoint(h)
+	return nil, h.Checkpoint(h, nil)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and

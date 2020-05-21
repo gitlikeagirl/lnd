@@ -78,8 +78,15 @@ func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver,
 	return v, nil
 }
 
-func (b *mockArbitratorLog) InsertUnresolvedContracts(
+func (b *mockArbitratorLog) InsertUnresolvedContracts(closure func(tx kvdb.RwTx) error,
 	resolvers ...ContractResolver) error {
+
+	// If our closure is non-nil, run it with a nil transaction.
+	if closure != nil {
+		if err := closure(nil); err != nil {
+			return err
+		}
+	}
 
 	b.Lock()
 	for _, resolver := range resolvers {

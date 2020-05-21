@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 var (
@@ -86,8 +87,9 @@ type ResolverConfig struct {
 
 	// Checkpoint allows a resolver to check point its state. This function
 	// should write the state of the resolver to persistent storage, and
-	// return a non-nil error upon success.
-	Checkpoint func(ContractResolver) error
+	// return a non-nil error upon success. It takes a closure which will
+	// write additional information to disk in the same transaction.
+	Checkpoint func(ContractResolver, func(tx kvdb.RwTx) error) error
 }
 
 // contractResolverKit is meant to be used as a mix-in struct to be embedded within a

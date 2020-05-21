@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -43,7 +44,16 @@ func newCommitSweepResolverTestContext(t *testing.T,
 
 	cfg := ResolverConfig{
 		ChannelArbitratorConfig: chainCfg,
-		Checkpoint: func(_ ContractResolver) error {
+		Checkpoint: func(_ ContractResolver,
+			closure func(_ kvdb.RwTx) error) error {
+
+			// If our closure is non-nil, run it with a nil tx.
+			if closure != nil {
+				if err := closure(nil); err != nil {
+					return err
+				}
+			}
+
 			checkPointChan <- struct{}{}
 			return nil
 		},

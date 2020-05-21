@@ -62,8 +62,10 @@ type ArbitratorLog interface {
 
 	// InsertUnresolvedContracts inserts a set of unresolved contracts into
 	// the log. The log will then persistently store each contract until
-	// they've been swapped out, or resolved.
-	InsertUnresolvedContracts(...ContractResolver) error
+	// they've been swapped out, or resolved. It takes a closure which
+	// will be applied within the same database transaction.
+	InsertUnresolvedContracts(closure func(tx kvdb.RwTx) error,
+		resolvers ...ContractResolver) error
 
 	// FetchUnresolvedContracts returns all unresolved contracts that have
 	// been previously written to the log.
@@ -533,7 +535,9 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 // swapped out, or resolved.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) InsertUnresolvedContracts(resolvers ...ContractResolver) error {
+func (b *boltArbitratorLog) InsertUnresolvedContracts(closure func(
+	tx kvdb.RwTx) error, resolvers ...ContractResolver) error {
+
 	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
 		contractBucket, err := fetchContractWriteBucket(tx, b.scopeKey[:])
 		if err != nil {
@@ -543,6 +547,13 @@ func (b *boltArbitratorLog) InsertUnresolvedContracts(resolvers ...ContractResol
 		for _, resolver := range resolvers {
 			err = b.writeResolver(contractBucket, resolver)
 			if err != nil {
+				return err
+			}
+		}
+
+		// Apply the closure if it is non-nil.
+		if closure != nil {
+			if err := closure(tx); err != nil {
 				return err
 			}
 		}
@@ -908,15 +919,29 @@ func (b *boltArbitratorLog) WipeHistory() error {
 
 // checkpointContract is a private method that will be fed into
 // ContractResolver instances to checkpoint their state once they reach
-// milestones during contract resolution.
-func (b *boltArbitratorLog) checkpointContract(c ContractResolver) error {
+// milestones during contract resolution. If the closure provided is non-nil,
+// it will be applied within the same update transaction.
+func (b *boltArbitratorLog) checkpointContract(c ContractResolver,
+	closure func(tx kvdb.RwTx) error) error {
+
 	return kvdb.Update(b.db, func(tx kvdb.RwTx) error {
 		contractBucket, err := fetchContractWriteBucket(tx, b.scopeKey[:])
 		if err != nil {
 			return err
 		}
 
-		return b.writeResolver(contractBucket, c)
+		if err := b.writeResolver(contractBucket, c); err != nil {
+			return err
+		}
+
+		// Apply closure if it is non-nil.
+		if closure != nil {
+			if err := closure(tx); err != nil {
+				return err
+			}
+		}
+
+		return nil
 	})
 }
 

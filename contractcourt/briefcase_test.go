@@ -333,8 +333,10 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	resolverMap[string(resolvers[3].ResolverKey())] = resolvers[3]
 	resolverMap[string(resolvers[4].ResolverKey())] = resolvers[4]
 
-	// Now, we'll insert the resolver into the log.
-	if err := testLog.InsertUnresolvedContracts(resolvers...); err != nil {
+	// Now, we'll insert the resolver into the log, we do not need to apply
+	// any closures, so we will pass in nil.
+	err = testLog.InsertUnresolvedContracts(nil, resolvers...)
+	if err != nil {
 		t.Fatalf("unable to insert resolvers: %v", err)
 	}
 
@@ -414,8 +416,9 @@ func TestContractResolution(t *testing.T) {
 	}
 
 	// First, we'll insert the resolver into the database and ensure that
-	// we get the same resolver out the other side.
-	err = testLog.InsertUnresolvedContracts(timeoutResolver)
+	// we get the same resolver out the other side. We do not need to apply
+	// any closures.
+	err = testLog.InsertUnresolvedContracts(nil, timeoutResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
@@ -477,8 +480,9 @@ func TestContractSwapping(t *testing.T) {
 		htlcTimeoutResolver: timeoutResolver,
 	}
 
-	// We'll first insert the contest resolver into the log.
-	err = testLog.InsertUnresolvedContracts(contestResolver)
+	// We'll first insert the contest resolver into the log with no
+	// additional updates.
+	err = testLog.InsertUnresolvedContracts(nil, contestResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}

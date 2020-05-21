@@ -120,7 +120,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			"abandoning", h, h.htlcResolution.ClaimOutpoint,
 			h.htlcExpiry, currentHeight)
 		h.resolved = true
-		return nil, h.Checkpoint(h)
+		return nil, h.Checkpoint(h, nil)
 	}
 
 	// tryApplyPreimage is a helper function that will populate our internal
@@ -196,7 +196,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcExpiry, currentHeight)
 
 			h.resolved = true
-			return nil, h.Checkpoint(h)
+			return nil, h.Checkpoint(h, nil)
 
 		// Error if the resolution type is unknown, we are only
 		// expecting settles and fails.
@@ -305,7 +305,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 					h.htlcResolution.ClaimOutpoint,
 					h.htlcExpiry, currentHeight)
 				h.resolved = true
-				return nil, h.Checkpoint(h)
+				return nil, h.Checkpoint(h, nil)
 			}
 
 		case <-h.quit:
