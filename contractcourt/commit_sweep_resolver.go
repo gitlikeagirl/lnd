@@ -6,9 +6,12 @@ import (
 	"io"
 	"sync"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
+	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -235,6 +238,8 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 		return nil, err
 	}
 
+	var sweepTxID chainhash.Hash
+
 	// Sweeper is going to join this input with other inputs if
 	// possible and publish the sweep tx. When the sweep tx
 	// confirms, it signals us through the result channel with the
@@ -262,6 +267,9 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 
 			return nil, sweepResult.Err
 		}
+
+		sweepTxID = sweepResult.Tx.TxHash()
+
 	case <-c.quit:
 		return nil, errResolverShuttingDown
 	}
@@ -277,7 +285,10 @@ func (c *commitSweepResolver) Resolve() (ContractResolver, error) {
 	c.reportLock.Unlock()
 
 	c.resolved = true
-	return nil, c.Checkpoint(c, nil)
+
+	// Checkpoint the resolver with a closure that will write the outcome
+	// of the resolver and its sweep transaction to disk.
+	return nil, c.Checkpoint(c, c.putResolverReport(&sweepTxID))
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
@@ -372,6 +383,27 @@ func (c *commitSweepResolver) report() *ContractReport {
 
 	copy := c.currentReport
 	return &copy
+}
+
+// putResolverReport is a helper which returns a function that will write a
+// resolver report to disk.
+func (c *commitSweepResolver) putResolverReport(spendTx *chainhash.Hash) func(
+	tx kvdb.RwTx) error {
+
+	amt := btcutil.Amount(
+		c.commitResolution.SelfOutputSignDesc.Output.Value,
+	)
+
+	outcome := channeldb.ResolverOutputCommitOutputDelay
+
+	return func(tx kvdb.RwTx) error {
+		return c.PutResolverReport(tx, &channeldb.ResolverReport{
+			OutPoint:        c.commitResolution.SelfOutPoint,
+			Amount:          amt,
+			ResolverOutcome: outcome,
+			SpendTxID:       spendTx,
+		})
+	}
 }
 
 // initReport initializes the pending channels report for this resolver.

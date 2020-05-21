@@ -1,6 +1,7 @@
 package contractcourt
 
 import (
+	"reflect"
 	"testing"
 	"time"
 
@@ -181,12 +182,33 @@ func TestCommitSweepResolverNoDelay(t *testing.T) {
 	ctx := newCommitSweepResolverTestContext(t, &res)
 	ctx.resolve()
 
-	ctx.notifier.confChan <- &chainntnfs.TxConfirmation{}
+	spendTx := &wire.MsgTx{}
+	spendHash := spendTx.TxHash()
+	ctx.notifier.confChan <- &chainntnfs.TxConfirmation{
+		Tx: spendTx,
+	}
 
 	// No csv delay, so the input should be swept immediately.
 	<-ctx.sweeper.sweptInputs
 
 	ctx.waitForResult()
+
+	amt := btcutil.Amount(res.SelfOutputSignDesc.Output.Value)
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        wire.OutPoint{},
+		Amount:          amt,
+		ResolverOutcome: channeldb.ResolverOutputCommitOutputDelay,
+		SpendTxID:       &spendHash,
+	}
+
+	if len(ctx.reports) != 1 {
+		t.Fatalf("expected 1 report, got: %v", len(ctx.reports))
+	}
+
+	if !reflect.DeepEqual(ctx.reports[0], expectedReport) {
+		t.Fatalf("expected: %v, got: %v", expectedReport,
+			ctx.reports[0])
+	}
 }
 
 // testCommitSweepResolverDelay tests resolution of a direct commitment output

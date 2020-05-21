@@ -95,6 +95,10 @@ const (
 	// ResolverOutcomeOutgoingHtlcClaim indicates that the remote party
 	// claimed one of our outgoing htlcs on chain with the preimage.
 	ResolverOutcomeOutgoingHtlcClaim
+
+	// ResolverOutputCommitOutputDelay indicates that we swept our time
+	// locked commitment output on chain.
+	ResolverOutputCommitOutputDelay
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
