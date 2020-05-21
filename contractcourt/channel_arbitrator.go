@@ -144,6 +144,12 @@ type ChannelArbitratorConfig struct {
 	// TODO(roasbeef): need RPC's to combine for pendingchannels RPC
 	MarkChannelResolved func() error
 
+	// PutResolverReport records a resolver report for the channel. If the
+	// transaction provided is nil, the function should write the report
+	// in a new transaction.
+	PutResolverReport func(tx kvdb.RwTx,
+		report *channeldb.ResolverReport) error
+
 	ChainArbitratorConfig
 }
 

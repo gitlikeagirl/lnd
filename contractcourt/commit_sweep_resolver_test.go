@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -18,6 +19,7 @@ type commitSweepResolverTestContext struct {
 	resolver           *commitSweepResolver
 	notifier           *mockNotifier
 	sweeper            *mockSweeper
+	reports            []*channeldb.ResolverReport
 	resolverResultChan chan resolveResult
 	t                  *testing.T
 }
@@ -35,10 +37,22 @@ func newCommitSweepResolverTestContext(t *testing.T,
 
 	checkPointChan := make(chan struct{}, 1)
 
+	testCtx := &commitSweepResolverTestContext{
+		notifier: notifier,
+		sweeper:  sweeper,
+		t:        t,
+	}
+
 	chainCfg := ChannelArbitratorConfig{
 		ChainArbitratorConfig: ChainArbitratorConfig{
 			Notifier: notifier,
 			Sweeper:  sweeper,
+		},
+		PutResolverReport: func(_ kvdb.RwTx,
+			report *channeldb.ResolverReport) error {
+
+			testCtx.reports = append(testCtx.reports, report)
+			return nil
 		},
 	}
 
@@ -59,16 +73,11 @@ func newCommitSweepResolverTestContext(t *testing.T,
 		},
 	}
 
-	resolver := newCommitSweepResolver(
+	testCtx.resolver = newCommitSweepResolver(
 		*resolution, 0, wire.OutPoint{}, cfg,
 	)
 
-	return &commitSweepResolverTestContext{
-		resolver: resolver,
-		notifier: notifier,
-		sweeper:  sweeper,
-		t:        t,
-	}
+	return testCtx
 }
 
 func (i *commitSweepResolverTestContext) resolve() {

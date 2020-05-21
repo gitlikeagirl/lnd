@@ -208,6 +208,8 @@ type chanArbTestCtx struct {
 
 	resolutions chan []ResolutionMsg
 
+	reports []*channeldb.ResolverReport
+
 	log ArbitratorLog
 
 	sweeper *mockSweeper
@@ -366,6 +368,17 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	// MarkChannelResolved.
 	resolvedChan := make(chan struct{}, 1)
 
+	testCtx := &chanArbTestCtx{
+		t:                  t,
+		cleanUp:            func() {},
+		resolvedChan:       resolvedChan,
+		resolutions:        resolutionChan,
+		blockEpochs:        blockEpochs,
+		log:                log,
+		incubationRequests: incubateChan,
+		sweeper:            mockSweeper,
+	}
+
 	// Next we'll create the matching configuration struct that contains
 	// all interfaces and methods the arbitrator needs to do its job.
 	arbCfg := &ChannelArbitratorConfig{
@@ -387,6 +400,13 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		IsPendingClose:        false,
 		ChainArbitratorConfig: chainArbCfg,
 		ChainEvents:           chanEvents,
+		PutResolverReport: func(_ kvdb.RwTx,
+			report *channeldb.ResolverReport) error {
+
+			testCtx.reports = append(testCtx.reports, report)
+
+			return nil
+		},
 	}
 
 	// Apply all custom options to the config struct.
@@ -394,8 +414,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		option(arbCfg)
 	}
 
-	var cleanUp func()
-	if log == nil {
+	if testCtx.log == nil {
 		dbDir, err := ioutil.TempDir("", "chanArb")
 		if err != nil {
 			return nil, err
@@ -412,12 +431,12 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		if err != nil {
 			return nil, err
 		}
-		cleanUp = func() {
+		testCtx.cleanUp = func() {
 			db.Close()
 			os.RemoveAll(dbDir)
 		}
 
-		log = &testArbLog{
+		testCtx.log = &testArbLog{
 			ArbitratorLog: backingLog,
 			newStates:     make(chan ArbitratorState),
 		}
@@ -425,19 +444,9 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 
 	htlcSets := make(map[HtlcSetKey]htlcSet)
 
-	chanArb := NewChannelArbitrator(*arbCfg, htlcSets, log)
+	testCtx.chanArb = NewChannelArbitrator(*arbCfg, htlcSets, testCtx.log)
 
-	return &chanArbTestCtx{
-		t:                  t,
-		chanArb:            chanArb,
-		cleanUp:            cleanUp,
-		resolvedChan:       resolvedChan,
-		resolutions:        resolutionChan,
-		blockEpochs:        blockEpochs,
-		log:                log,
-		incubationRequests: incubateChan,
-		sweeper:            mockSweeper,
-	}, nil
+	return testCtx, nil
 }
 
 // TestChannelArbitratorCooperativeClose tests that the ChannelArbitertor
