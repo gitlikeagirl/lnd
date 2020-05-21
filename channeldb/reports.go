@@ -83,6 +83,10 @@ const (
 	// ResolverOutcomeIncomingHtlcClaimed indicates that we claimed an
 	// incoming htlc with our preimage on chain.
 	ResolverOutcomeIncomingHtlcClaimed
+
+	// ResolverTypeOutgoingHtlcTimeoutTx indicates that we broadcast the
+	// first stage of a two stage htlc timeout for an outgoing htlc.
+	ResolverTypeOutgoingHtlcTimeoutTx
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
