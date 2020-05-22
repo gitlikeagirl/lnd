@@ -50,6 +50,18 @@ const (
 	// ResolverOutcomeUnknown is a placeholder for unknown resolver
 	// outcomes.
 	ResolverOutcomeUnknown ResolverOutcome = iota
+
+	// ResolverOutcomeAnchorRecovered indicates that we swept our own
+	// anchor.
+	ResolverOutcomeAnchorRecovered
+
+	// ResolverOutcomeAnchorLost indicates that we did not sweep our anchor,
+	// or another party claimed it.
+	ResolverOutcomeAnchorLost
+
+	// ResolverOutcomeAnchorUnclaimed indicates that the anchor was left
+	// unspent.
+	ResolverOutcomeAnchorUnclaimed
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs

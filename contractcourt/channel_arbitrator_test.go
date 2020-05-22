@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -2198,18 +2199,20 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		},
 	}
 
+	anchorResolution := &lnwallet.AnchorResolution{
+		AnchorSignDescriptor: input.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 1,
+			},
+		},
+	}
+
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-			CloseTx:         closeTx,
-			HtlcResolutions: &lnwallet.HtlcResolutions{},
-			AnchorResolution: &lnwallet.AnchorResolution{
-				AnchorSignDescriptor: input.SignDescriptor{
-					Output: &wire.TxOut{
-						Value: 1,
-					},
-				},
-			},
+			CloseTx:          closeTx,
+			HtlcResolutions:  &lnwallet.HtlcResolutions{},
+			AnchorResolution: anchorResolution,
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
@@ -2246,6 +2249,32 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	case <-chanArbCtx.resolvedChan:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("contract was not resolved")
+	}
+
+	anchorAmt := btcutil.Amount(
+		anchorResolution.AnchorSignDescriptor.Output.Value,
+	)
+	spendTx := chanArbCtx.sweeper.sweepTx.TxHash()
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        anchorResolution.CommitAnchor,
+		Amount:          anchorAmt,
+		ResolverOutcome: channeldb.ResolverOutcomeAnchorRecovered,
+		SpendTxID:       &spendTx,
+	}
+
+	assertResolverReport(t, chanArbCtx.reports, expectedReport)
+}
+
+// assertResolverReport checks that  a set of reports only contains a single
+// report, and that it is equal to the expected report passed in.
+func assertResolverReport(t *testing.T, reports []*channeldb.ResolverReport,
+	expected *channeldb.ResolverReport) {
+	if len(reports) != 1 {
+		t.Fatalf("expected 1 report, got: %v", len(reports))
+	}
+
+	if !reflect.DeepEqual(reports[0], expected) {
+		t.Fatalf("expected: %v, got: %v", expected, reports[0])
 	}
 }
 
