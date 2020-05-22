@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -2198,18 +2199,20 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 		},
 	}
 
+	anchorResolution := &lnwallet.AnchorResolution{
+		AnchorSignDescriptor: input.SignDescriptor{
+			Output: &wire.TxOut{
+				Value: 1,
+			},
+		},
+	}
+
 	chanArb.cfg.ChainEvents.LocalUnilateralClosure <- &LocalUnilateralCloseInfo{
 		SpendDetail: &chainntnfs.SpendDetail{},
 		LocalForceCloseSummary: &lnwallet.LocalForceCloseSummary{
-			CloseTx:         closeTx,
-			HtlcResolutions: &lnwallet.HtlcResolutions{},
-			AnchorResolution: &lnwallet.AnchorResolution{
-				AnchorSignDescriptor: input.SignDescriptor{
-					Output: &wire.TxOut{
-						Value: 1,
-					},
-				},
-			},
+			CloseTx:          closeTx,
+			HtlcResolutions:  &lnwallet.HtlcResolutions{},
+			AnchorResolution: anchorResolution,
 		},
 		ChannelCloseSummary: &channeldb.ChannelCloseSummary{},
 		CommitSet: CommitSet{
@@ -2246,6 +2249,26 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 	case <-chanArbCtx.resolvedChan:
 	case <-time.After(5 * time.Second):
 		t.Fatalf("contract was not resolved")
+	}
+
+	anchorAmt := btcutil.Amount(
+		anchorResolution.AnchorSignDescriptor.Output.Value,
+	)
+	spendTx := chanArbCtx.sweeper.sweepTx.TxHash()
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        anchorResolution.CommitAnchor,
+		Amount:          anchorAmt,
+		ResolverOutcome: channeldb.ResolverOutcomeAnchorRecovered,
+		SpendTxID:       &spendTx,
+	}
+
+	if len(chanArbCtx.reports) != 1 {
+		t.Fatalf("expected 1 report, got: %v", len(chanArbCtx.reports))
+	}
+
+	if !reflect.DeepEqual(chanArbCtx.reports[0], expectedReport) {
+		t.Fatalf("expected: %v, got: %v", expectedReport,
+			chanArbCtx.reports[0])
 	}
 }
 
