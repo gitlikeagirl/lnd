@@ -2361,7 +2361,7 @@ func generateBandwidthHints(sourceNode *channeldb.LightningNode,
 	return bandwidthHints, nil
 }
 
-// ErrNoChannel is returned when a route cannot be built because there are no
+// ErrNoChannelSummaries is returned when a route cannot be built because there are no
 // channels that satisfy all requirements.
 type ErrNoChannel struct {
 	position int
