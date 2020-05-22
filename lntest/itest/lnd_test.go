@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/common/log"
+
 	"github.com/btcsuite/btcd/btcjson"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -3560,6 +3562,10 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf(err.Error())
 	}
 
+	// Create a map of outpoints to expected resolutions which we will add
+	// reports to as we sweep outputs.
+	expectedResolutions := make(map[string]*lnrpc.Resolution)
+
 	// Generate an additional block, which should cause the CSV delayed
 	// output from the commitment txn to expire.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
@@ -3587,6 +3593,23 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 				closingTxID, txIn.PreviousOutPoint)
 		}
 	}
+
+	inputs := sweepTx.MsgTx().TxIn
+	if len(inputs) != 1 {
+		t.Fatalf("expected on txin, got: %v", len(inputs))
+	}
+
+	output := inputs[0].PreviousOutPoint
+	expectedResolutions[output.String()] = &lnrpc.Resolution{
+		Type:      lnrpc.Resolution_COMMIT_SWEEP,
+		SweepTxid: sweepingTXID.String(),
+		Outpoint: &lnrpc.OutPoint{
+			TxidStr:     output.String(),
+			OutputIndex: output.Index,
+		},
+	}
+
+	log.Infof("Added resolution: %v", expectedResolutions[output.String()])
 
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps.
@@ -3775,18 +3798,38 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 			t.Fatalf("unable to fetch sweep tx: %v", err)
 		}
 		// Ensure the htlc transaction only has one input.
-		if len(htlcTx.MsgTx().TxIn) != 1 {
+		inputs := htlcTx.MsgTx().TxIn
+		if len(inputs) != 1 {
 			t.Fatalf("htlc transaction should only have one txin, "+
 				"has %d", len(htlcTx.MsgTx().TxIn))
 		}
 		// Ensure the htlc transaction is spending from the commitment
 		// transaction.
-		txIn := htlcTx.MsgTx().TxIn[0]
+		txIn := inputs[0]
 		if !closingTxID.IsEqual(&txIn.PreviousOutPoint.Hash) {
 			t.Fatalf("htlc transaction not spending from commit "+
 				"tx %v, instead spending %v",
 				closingTxID, txIn.PreviousOutPoint)
 		}
+
+		// TODO(carla): how do we get the amount.
+		// Get the outputs referencing this input and check how much
+		// they pay.
+
+		// For each htlc timeout transaction, we expect a resolver
+		// report recording this on chain resolution.
+		outpoint := txIn.PreviousOutPoint
+		expectedResolutions[outpoint.String()] = &lnrpc.Resolution{
+			Type:      lnrpc.Resolution_TIMEOUT_TX,
+			SweepTxid: htlcTx.Hash().String(),
+			Outpoint: &lnrpc.OutPoint{
+				TxidStr:     outpoint.String(),
+				OutputIndex: outpoint.Index,
+			},
+			// TODO(carla): fix
+			AmountSat: 0,
+		}
+		log.Infof("Added resolution: %v", expectedResolutions[output.String()])
 	}
 
 	// With the htlc timeout txns still in the mempool, we restart Alice to
@@ -3914,6 +3957,21 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 			t.Fatalf("htlc sweep tx has multiple spends from "+
 				"outpoint %v", outpoint)
 		}
+
+		// Since we have now swept our htlc timeout tx, we expect to
+		// have timeout resolutions for each of our htlcs.
+		output := txIn.PreviousOutPoint
+		expectedResolutions[output.String()] = &lnrpc.Resolution{
+			Type:      lnrpc.Resolution_OUTGOING_TIMEOUT,
+			SweepTxid: htlcSweepTx.Hash().String(),
+			Outpoint: &lnrpc.OutPoint{
+				TxidStr:     output.String(),
+				OutputIndex: output.Index,
+			},
+			// TODO(carla): fix
+			AmountSat: 0,
+		}
+		log.Infof("Added resolution: %v", expectedResolutions[output.String()])
 	}
 
 	// Check that we can find the htlc sweep in our set of sweeps.
@@ -4025,6 +4083,68 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("carol's balance is incorrect: expected %v got %v",
 			carolExpectedBalance,
 			carolBalResp.ConfirmedBalance)
+	}
+
+	// Now that Alice's channel is fully resolved, we can check that she has
+	// the correct on-disk resolutions for this channel.
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
+	closed, err := alice.ClosedChannels(ctxt, &lnrpc.ClosedChannelsRequest{
+		LocalForce: true,
+	})
+	if err != nil {
+		t.Fatalf("could not get closed channels: %v", err)
+	}
+
+	var resolutions []*lnrpc.Resolution
+	for _, close := range closed.Channels {
+		if close.ChannelPoint == op.String() {
+			resolutions = close.Resolutions
+			break
+		}
+	}
+
+	if resolutions == nil {
+		t.Fatalf("expected to find resolutions, got nil")
+	}
+
+	assertReports(t, resolutions, expectedResolutions)
+}
+
+// assertReports checks that the count of resolutions we have present per
+// type matches a set of expected resolutions.
+func assertReports(t *harnessTest, resolutions []*lnrpc.Resolution,
+	expected map[string]*lnrpc.Resolution) {
+
+	// TODO: carla, acount for anchores
+	/*if len(resolutions) != len(expected) {
+		t.Fatalf("expected: %v resolutions, got: %v", len(expected),
+			len(resolutions))
+	}*/
+
+	for _, res := range resolutions {
+		log.Infof("checking resolution: %v", res)
+		outPointStr := fmt.Sprintf("%v:%v", res.Outpoint.TxidStr,
+			res.Outpoint.OutputIndex)
+
+		expected, ok := expected[outPointStr]
+		if !ok {
+			// TODO(carla): account for anchors
+			if res.Type == lnrpc.Resolution_ANCHOR_RECOVERED {
+				continue
+			}
+			t.Fatalf("got resolution not in expected set: %v", res)
+		}
+		log.Infof("against resolution: %v", res)
+		// TODO(carla): figure out how to set amount and use reflect.Eq
+
+		if expected.Type != res.Type {
+			t.Fatalf("expected type %v, got: %v", expected.Type, res.Type)
+		}
+
+		if expected.SweepTxid != res.SweepTxid {
+			t.Fatalf("expected sweep tx %v, got: %v", expected.SweepTxid,
+				res.SweepTxid)
+		}
 	}
 }
 
