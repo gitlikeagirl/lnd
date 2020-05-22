@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
 	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -81,7 +83,13 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 		// present itself when we crash before processRemoteAdds in the
 		// link has ran.
 		h.resolved = true
-		return nil, nil
+
+		// We write a report to disk that indicates we could not decode
+		// the htlc.
+		resReport := h.report().resolverReport(
+			nil, channeldb.ResolverOutcomeInvalidIncomingHtlc,
+		)
+		return nil, h.PutResolverReport(nil, resReport)
 	}
 
 	// Register for block epochs. After registration, the current height
@@ -120,7 +128,10 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			"abandoning", h, h.htlcResolution.ClaimOutpoint,
 			h.htlcExpiry, currentHeight)
 		h.resolved = true
-		return nil, h.Checkpoint(h, nil)
+
+		return nil, h.checkpointReport(
+			nil, channeldb.ResolverOutcomeIncomingHtlcTimedOut,
+		)
 	}
 
 	// tryApplyPreimage is a helper function that will populate our internal
@@ -184,8 +195,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			if err != nil {
 				return nil, err
 			}
-
-			return &h.htlcSuccessResolver, nil
+			return h.handOffHtlcClaim()
 
 		// If the htlc was failed, mark the htlc as
 		// resolved.
@@ -196,7 +206,9 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 				h.htlcExpiry, currentHeight)
 
 			h.resolved = true
-			return nil, h.Checkpoint(h, nil)
+			return nil, h.checkpointReport(
+				nil, channeldb.ResolverOutcomeIncomingHtlcFailed,
+			)
 
 		// Error if the resolution type is unknown, we are only
 		// expecting settles and fails.
@@ -264,7 +276,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			return nil, err
 		}
 
-		return &h.htlcSuccessResolver, nil
+		return h.handOffHtlcClaim()
 	}
 
 	for {
@@ -284,7 +296,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 			// We've learned of the preimage and this information
 			// has been added to our inner resolver. We return it so
 			// it can continue contract resolution.
-			return &h.htlcSuccessResolver, nil
+			return h.handOffHtlcClaim()
 
 		case hodlItem := <-hodlChan:
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
@@ -305,7 +317,11 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 					h.htlcResolution.ClaimOutpoint,
 					h.htlcExpiry, currentHeight)
 				h.resolved = true
-				return nil, h.Checkpoint(h, nil)
+
+				return nil, h.checkpointReport(
+					nil,
+					channeldb.ResolverOutcomeIncomingHtlcTimedOut,
+				)
 			}
 
 		case <-h.quit:
@@ -333,6 +349,60 @@ func (h *htlcIncomingContestResolver) report() *ContractReport {
 		LimboBalance:   finalAmt,
 		Stage:          1,
 	}
+}
+
+// handOffHtlcClaim returns the inner htlcSuccessResolver so that we can claim
+// the incoming htlc on chain with the preimage. If the htlc is on our
+// commitment and we need to claim the htlc in two stages, we record stage one
+// of the htlc claim here.
+func (h *htlcIncomingContestResolver) handOffHtlcClaim() (ContractResolver,
+	error) {
+
+	// If we do not have a signed success transaction, we do not need to
+	// record the first stage of the two step htlc claim process, because
+	// this htlc will simply be claimed directly from the remote party's
+	// commitment.
+	if h.htlcResolution.SignedSuccessTx == nil {
+		return &h.htlcSuccessResolver, nil
+	}
+
+	// If the SignedSuccessTx is not nil, we are claiming the htlc in two
+	// stages from our own commitment. Here, we record the intermediate
+	// SignedSuccessTx stage so that we have a complete record of all on
+	// chain transactions that were required to claim this htlc.
+	spendTx := h.htlcResolution.SignedSuccessTx
+	spendTxID := spendTx.TxHash()
+
+	outpoint := spendTx.TxIn[0].PreviousOutPoint
+	amt := btcutil.Amount(spendTx.TxOut[0].Value)
+
+	report := &channeldb.ResolverReport{
+		OutPoint:        outpoint,
+		Amount:          amt,
+		ResolverOutcome: channeldb.ResolverOutcomeIncomingHtlcSuccessTx,
+		SpendTxID:       &spendTxID,
+	}
+
+	err := h.htlcSuccessResolver.PutResolverReport(nil, report)
+	if err != nil {
+		return nil, err
+	}
+
+	return &h.htlcSuccessResolver, nil
+}
+
+// checkpointReport is a helper which checkpoints the resolver and writes a
+// resolver report to disk with the spend tx and outcome provided.
+func (h *htlcIncomingContestResolver) checkpointReport(spendTx *chainhash.Hash,
+	t channeldb.ResolverOutcome) error {
+
+	report := h.report().resolverReport(spendTx, t)
+
+	return h.Checkpoint(h,
+		func(tx kvdb.RwTx) error {
+			return h.PutResolverReport(tx, report)
+		},
+	)
 }
 
 // Stop signals the resolver to cancel any current resolution processes, and
