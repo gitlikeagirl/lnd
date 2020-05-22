@@ -2,9 +2,11 @@ package contractcourt
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
 	"github.com/lightningnetwork/lnd/channeldb/kvdb"
@@ -20,11 +22,62 @@ const (
 // TestHtlcOutgoingResolverTimeout tests resolution of an offered htlc that
 // timed out.
 func TestHtlcOutgoingResolverTimeout(t *testing.T) {
+	t.Run("single stage, no report", func(t *testing.T) {
+		testOutgoingResolverTimeout(
+			t, newOutgoingResolverTestContext(t), nil,
+		)
+	})
+
+	t.Run("two stage, htlc timeout report", func(t *testing.T) {
+		// We create a test context with a non-nil timeout tx to test
+		// two stage claim. We add items in the timeout tx witness
+		// because we use it during resolution.
+		var timeoutTxValue int64 = 10000
+		timeoutTx := &wire.MsgTx{
+			TxIn: []*wire.TxIn{
+				{
+					PreviousOutPoint: testChanPoint1,
+					Witness:          [][]byte{{}},
+				},
+			},
+			TxOut: []*wire.TxOut{{
+				Value: timeoutTxValue,
+			}},
+		}
+		timeoutTxHash := timeoutTx.TxHash()
+
+		res := lnwallet.OutgoingHtlcResolution{
+			SignedTimeoutTx: timeoutTx,
+			SweepSignDesc:   testSignDesc,
+			Expiry:          outgoingContestHtlcExpiry,
+		}
+
+		ctxWithTimeoutTx := newOutgoingResolverTestContext(
+			t, outgoingResolutionOption(res),
+		)
+
+		expectedReport := &channeldb.ResolverReport{
+			OutPoint:        testChanPoint1,
+			Amount:          btcutil.Amount(timeoutTxValue),
+			ResolverOutcome: channeldb.ResolverTypeOutgoingHtlcTimeoutTx,
+			SpendTxID:       &timeoutTxHash,
+		}
+
+		testOutgoingResolverTimeout(
+			t, ctxWithTimeoutTx, []*channeldb.ResolverReport{
+				expectedReport,
+			},
+		)
+	})
+}
+
+// testOutgoingResolverTimeout tests timeout of outgoing htlcs. It takes a
+// list of the resolver reports it expects to be generated.
+func testOutgoingResolverTimeout(t *testing.T, ctx *outgoingResolverTestContext,
+	expectedReports []*channeldb.ResolverReport) {
+
 	t.Parallel()
 	defer timeout(t)()
-
-	// Setup the resolver with our test resolution.
-	ctx := newOutgoingResolverTestContext(t)
 
 	// Start the resolution process in a goroutine.
 	ctx.resolve()
@@ -36,6 +89,20 @@ func TestHtlcOutgoingResolverTimeout(t *testing.T) {
 	// Assert that the resolver finishes without error and transforms in a
 	// timeout resolver.
 	ctx.waitForResult(true)
+
+	// Check that we have the number of reports we required.
+	expectedReportsCount := len(expectedReports)
+	if expectedReportsCount != len(ctx.reports) {
+		t.Fatalf("expected: %v reports, got: %v", expectedReportsCount,
+			len(ctx.reports))
+	}
+
+	for i, report := range ctx.reports {
+		if !reflect.DeepEqual(report, expectedReports[i]) {
+			t.Fatalf("expected: %v, got: %v", expectedReports[i],
+				report)
+		}
+	}
 }
 
 // TestHtlcOutgoingResolverRemoteClaim tests resolution of an offered htlc that
@@ -51,16 +118,20 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	// The remote party sweeps the htlc. Notify our resolver of this event.
 	preimage := lntypes.Preimage{}
-	ctx.notifier.spendChan <- &chainntnfs.SpendDetail{
-		SpendingTx: &wire.MsgTx{
-			TxIn: []*wire.TxIn{
-				{
-					Witness: [][]byte{
-						{0}, {1}, {2}, preimage[:],
-					},
+	spendTx := &wire.MsgTx{
+		TxIn: []*wire.TxIn{
+			{
+				Witness: [][]byte{
+					{0}, {1}, {2}, preimage[:],
 				},
 			},
 		},
+	}
+	spendHash := spendTx.TxHash()
+
+	ctx.notifier.spendChan <- &chainntnfs.SpendDetail{
+		SpendingTx:    spendTx,
+		SpenderTxHash: &spendHash,
 	}
 
 	// We expect the extracted preimage to be added to the witness beacon.
@@ -72,6 +143,16 @@ func TestHtlcOutgoingResolverRemoteClaim(t *testing.T) {
 
 	// Assert that the resolver finishes without error.
 	ctx.waitForResult(false)
+
+	// Finally, check that we have a report as expected.
+	expectedReport := &channeldb.ResolverReport{
+		OutPoint:        wire.OutPoint{},
+		Amount:          0,
+		ResolverOutcome: channeldb.ResolverOutcomeOutgoingHtlcClaim,
+		SpendTxID:       &spendHash,
+	}
+
+	assertResolverReport(t, ctx.reports, expectedReport)
 }
 
 type resolveResult struct {

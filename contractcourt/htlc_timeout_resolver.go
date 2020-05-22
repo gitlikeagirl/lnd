@@ -5,6 +5,10 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcutil"
+
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
+
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -157,7 +161,20 @@ func (h *htlcTimeoutResolver) claimCleanUp(
 		return nil, err
 	}
 	h.resolved = true
-	return nil, h.Checkpoint(h, nil)
+
+	// Checkpoint our resolver with a report which reflects the preimage
+	// claim.
+	amt := btcutil.Amount(h.htlcResolution.SweepSignDesc.Output.Value)
+	report := &channeldb.ResolverReport{
+		OutPoint:        h.htlcResolution.ClaimOutpoint,
+		Amount:          amt,
+		ResolverOutcome: channeldb.ResolverOutcomeOutgoingHtlcClaim,
+		SpendTxID:       commitSpend.SpenderTxHash,
+	}
+
+	return nil, h.Checkpoint(h, func(tx kvdb.RwTx) error {
+		return h.PutResolverReport(tx, report)
+	})
 }
 
 // chainDetailsToWatch returns the output and script which we use to watch for

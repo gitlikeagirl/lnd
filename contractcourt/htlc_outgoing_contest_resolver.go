@@ -131,7 +131,8 @@ func (h *htlcOutgoingContestResolver) Resolve() (ContractResolver, error) {
 					"into timeout resolver", h,
 					h.htlcResolution.ClaimOutpoint,
 					newHeight, h.htlcResolution.Expiry)
-				return &h.htlcTimeoutResolver, nil
+
+				return h.handOffHtlcTimeout()
 			}
 
 		// The output has been spent! This means the preimage has been
@@ -196,6 +197,40 @@ func (h *htlcOutgoingContestResolver) IsResolved() bool {
 // NOTE: Part of the ContractResolver interface.
 func (h *htlcOutgoingContestResolver) Encode(w io.Writer) error {
 	return h.htlcTimeoutResolver.Encode(w)
+}
+
+// handOffHtlcTimeout returns the inner htlcTimeoutResolver so that we can
+// timeout outgoing htlc on chain. If the htlc is on our commitment and we need
+// to claim the htlc in two stages, we record stage one of the htlc claim here.
+func (h *htlcOutgoingContestResolver) handOffHtlcTimeout() (ContractResolver, error) {
+	// If we do not have a signed timeout transaction, we do not need to
+	// record the first stage of the two step htlc claim process, because
+	// this htlc will simply be timed out directly from the remote party's
+	// commitment.
+	if h.htlcResolution.SignedTimeoutTx == nil {
+		return &h.htlcTimeoutResolver, nil
+	}
+
+	// If the SignedTimeoutTx is not nil, we are timing out the htlc in two
+	// stages from our own commitment. Here, we record the intermediate
+	// SignedTimeoutTx stage so that we have a complete record of all on
+	// chain transactions that were required to timeout this htlc.
+	spendTx := h.htlcResolution.SignedTimeoutTx
+	spendTxID := spendTx.TxHash()
+
+	report := &channeldb.ResolverReport{
+		OutPoint:        spendTx.TxIn[0].PreviousOutPoint,
+		Amount:          btcutil.Amount(spendTx.TxOut[0].Value),
+		ResolverOutcome: channeldb.ResolverTypeOutgoingHtlcTimeoutTx,
+		SpendTxID:       &spendTxID,
+	}
+
+	err := h.htlcTimeoutResolver.PutResolverReport(nil, report)
+	if err != nil {
+		return nil, err
+	}
+
+	return &h.htlcTimeoutResolver, nil
 }
 
 // newOutgoingContestResolverFromReader attempts to decode an encoded ContractResolver
