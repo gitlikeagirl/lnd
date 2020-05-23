@@ -3,6 +3,7 @@ package contractcourt
 import (
 	"bytes"
 	"fmt"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -129,6 +130,10 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		// can use this to customize the witness used when spending to
 		// trigger various redemption cases.
 		txToBroadcast func() (*wire.MsgTx, error)
+
+		// outcome is the resolver outcome that we expect to be reported
+		// once the contract is fully resolved.
+		outcome channeldb.ResolverOutcome
 	}{
 		// Remote commitment is broadcast, we time out the HTLC on
 		// chain, and should expect a fail HTLC resolution.
@@ -148,6 +153,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeOutgoingHtlcTimeout,
 		},
 
 		// Our local commitment is broadcast, we timeout the HTLC and
@@ -168,6 +174,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeOutgoingHtlcTimeout,
 		},
 
 		// The remote commitment is broadcast, they sweep with the
@@ -189,6 +196,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeOutgoingHtlcClaim,
 		},
 
 		// The local commitment is broadcast, they sweep it with a
@@ -210,6 +218,7 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 				templateTx.TxIn[0].Witness = witness
 				return templateTx, nil
 			},
+			outcome: channeldb.ResolverOutcomeOutgoingHtlcClaim,
 		},
 	}
 
@@ -324,9 +333,12 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unable to generate tx: %v", err)
 		}
+		spendTxHash := spendingTx.TxHash()
+
 		select {
 		case notifier.spendChan <- &chainntnfs.SpendDetail{
-			SpendingTx: spendingTx,
+			SpendingTx:    spendingTx,
+			SpenderTxHash: &spendTxHash,
 		}:
 		case <-time.After(time.Second * 5):
 			t.Fatalf("failed to request spend ntfn")
@@ -382,7 +394,8 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 			if !testCase.remoteCommit {
 				select {
 				case notifier.spendChan <- &chainntnfs.SpendDetail{
-					SpendingTx: spendingTx,
+					SpendingTx:    spendingTx,
+					SpenderTxHash: &spendTxHash,
 				}:
 				case <-time.After(time.Second * 5):
 					t.Fatalf("failed to request spend ntfn")
@@ -401,6 +414,23 @@ func TestHtlcTimeoutResolver(t *testing.T) {
 		}
 
 		wg.Wait()
+
+		spendTxID := spendingTx.TxHash()
+		expectedReport := &channeldb.ResolverReport{
+			OutPoint:        wire.OutPoint{},
+			Amount:          0,
+			ResolverOutcome: testCase.outcome,
+			SpendTxID:       &spendTxID,
+		}
+
+		if len(reports) != 1 {
+			t.Fatalf("expected 1 report, got: %v", len(reports))
+		}
+
+		if !reflect.DeepEqual(reports[0], expectedReport) {
+			t.Fatalf("expected: %v, got: %v", expectedReport,
+				reports[0])
+		}
 
 		// Finally, the resolver should be marked as resolved.
 		if !resolver.resolved {

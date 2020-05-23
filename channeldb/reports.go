@@ -91,6 +91,10 @@ const (
 	// ResolverOutcomeOutgoingHtlcClaim indicates that the remote party
 	// claimed one of our outgoing htlcs on chain.
 	ResolverOutcomeOutgoingHtlcClaim
+
+	// ResolverOutcomeOutgoingHtlcTimeout indicates the we successfully
+	// timed out one of our outgoing htlcs on chain.
+	ResolverOutcomeOutgoingHtlcTimeout
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
