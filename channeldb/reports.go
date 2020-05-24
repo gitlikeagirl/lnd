@@ -95,6 +95,10 @@ const (
 	// ResolverOutcomeOutgoingHtlcTimeout indicates the we successfully
 	// timed out one of our outgoing htlcs on chain.
 	ResolverOutcomeOutgoingHtlcTimeout
+
+	// ResolverOutputCommitSweep indicates that we swept our time locked
+	// commitment output on chain.
+	ResolverOutputCommitSweep
 )
 
 // ResolverReport provides an account of the outcome of a resolver. This differs
