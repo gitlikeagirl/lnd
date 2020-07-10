@@ -77,7 +77,7 @@ func TestRateLimitAdd(t *testing.T) {
 		outpoint = wire.OutPoint{Index: 1}
 	)
 
-	eventLog := newEventLog(outpoint, vertex, mockedClock.Now)
+	eventLog := newEventLog(outpoint, vertex, mockedClock.Now, 0)
 	require.Nil(t, eventLog.stagedEvent)
 
 	// First, we add an event to the event log. Since we have no previous

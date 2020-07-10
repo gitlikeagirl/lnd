@@ -90,11 +90,12 @@ type chanEventLog struct {
 
 // newEventLog creates an event log for a channel with the openedAt time set.
 func newEventLog(channelPoint wire.OutPoint, peer route.Vertex,
-	now func() time.Time) *chanEventLog {
+	now func() time.Time, flapCount uint32) *chanEventLog {
 
 	eventlog := &chanEventLog{
 		channelPoint: channelPoint,
 		peer:         peer,
+		flapCount:    flapCount,
 		now:          now,
 		openedAt:     now(),
 	}

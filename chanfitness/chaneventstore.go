@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/peernotifier"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/subscribe"
+	"github.com/lightningnetwork/lnd/ticker"
 )
 
 var (
@@ -57,6 +58,10 @@ type ChannelEventStore struct {
 	wg sync.WaitGroup
 }
 
+// FlapCountFlushRate determines how often we write peer total flap count to
+// disk.
+var FlapCountFlushRate = time.Hour
+
 // Config provides the event store with functions required to monitor channel
 // activity. All elements of the config must be non-nil for the event store to
 // operate.
@@ -77,6 +82,16 @@ type Config struct {
 	// Clock is the time source that the subsystem uses, provided here
 	// for ease of testing.
 	Clock clock.Clock
+
+	// WriteFlapCounts records the flap count for a set of peers on disk.
+	WriteFlapCount func(map[route.Vertex]map[wire.OutPoint]uint32) error
+
+	// ReadFlapCount gets the flap count for a peer on disk.
+	ReadFlapCount func(_ route.Vertex, _ wire.OutPoint) (uint32, error)
+
+	// FlapCountTicker is a ticker which controls how often we flush our
+	// peer's flap count to disk.
+	FlapCountTicker ticker.Ticker
 }
 
 // lifespanRequest contains the channel ID required to query the store for a
@@ -193,6 +208,8 @@ func (c *ChannelEventStore) Start() error {
 func (c *ChannelEventStore) Stop() {
 	log.Info("Stopping event store")
 
+	c.cfg.FlapCountTicker.Stop()
+
 	// Stop the consume goroutine.
 	close(c.quit)
 
@@ -216,8 +233,32 @@ func (c *ChannelEventStore) addChannel(channelPoint wire.OutPoint,
 		return
 	}
 
-	// Create an event log for the channel.
-	eventLog := newEventLog(channelPoint, peer, c.cfg.Clock.Now)
+	// Read flap count from disk, ignoring errors that we get when we have
+	// not recorded flap count for this peer before.
+	flapCount, err := c.cfg.ReadFlapCount(peer, channelPoint)
+	switch err {
+	// If we do not have any records for this peer fallthrough.
+	case channeldb.ErrNoPeerBucket:
+
+	// If we do not have any records for this channel fallthrough.
+	case channeldb.ErrNoPeerChanBucket:
+
+	// If we do not have flap count recorded for this peer (which may happen
+	// for existing peers where we have not flushed our value to disk yet),
+	// fallthrough.
+	case channeldb.ErrNoFlapCount:
+
+	// Fallthrough on nil error.
+	case nil:
+
+	// Return if we get an unexpected error.
+	default:
+		log.Errorf("Could not get flap count: %v", err)
+		return
+	}
+
+	// Create an event log for the channel with our historic flap count.
+	eventLog := newEventLog(channelPoint, peer, c.cfg.Clock.Now, flapCount)
 
 	// If the peer is already online, add a peer online event to record
 	// the starting state of the peer.
@@ -266,8 +307,19 @@ type subscriptions struct {
 // the event store with channel and peer events, and serves requests for channel
 // uptime and lifespan.
 func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
-	defer c.wg.Done()
-	defer subscriptions.cancel()
+	// On exit, we will cancel our subscriptions and write our most recent
+	// flap counts to disk. This ensures that we have consistent data in
+	// the case of a graceful shutdown. If we do not shutdown gracefully,
+	// our worst case is data from our last flap count tick (1H).
+	defer func() {
+		defer c.wg.Done()
+
+		subscriptions.cancel()
+
+		if err := c.recordFlapCount(); err != nil {
+			log.Errorf("error recording flap on shutdown: %v", err)
+		}
+	}()
 
 	// Consume events until the channel is closed.
 	for {
@@ -345,6 +397,12 @@ func (c *ChannelEventStore) consume(subscriptions *subscriptions) {
 
 			req.responseChan <- resp
 
+		case <-c.cfg.FlapCountTicker.Ticks():
+			if err := c.recordFlapCount(); err != nil {
+				log.Errorf("could not record flap "+
+					"count: %v", err)
+			}
+
 		// Exit if the store receives the signal to shutdown.
 		case <-c.quit:
 			return
@@ -413,4 +471,34 @@ func (c *ChannelEventStore) GetUptime(channelPoint wire.OutPoint, startTime,
 	case <-c.quit:
 		return 0, errShuttingDown
 	}
+}
+
+// recordFlapCount will record our flap count for each channel we are currently
+// tracking.
+func (c *ChannelEventStore) recordFlapCount() error {
+	log.Debugf("recording flap count for: %v channels", len(c.channels))
+
+	flapCounts := make(map[route.Vertex]map[wire.OutPoint]uint32)
+
+	for _, channel := range c.channels {
+		// Don't bother storing flap counts for channels that have not
+		// flapped.
+		if channel.flapCount == 0 {
+			continue
+		}
+
+		// Get our peer's current set of channels and flap counts, if
+		// we don't yet have any channels, we create a map.
+		channels, ok := flapCounts[channel.peer]
+		if !ok {
+			channels = make(map[wire.OutPoint]uint32)
+		}
+
+		// Add the flap count for our channel to our set of channels and
+		// set the entry for our peer.
+		channels[channel.channelPoint] = channel.flapCount
+		flapCounts[channel.peer] = channels
+	}
+
+	return c.cfg.WriteFlapCount(flapCounts)
 }

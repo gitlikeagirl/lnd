@@ -158,10 +158,17 @@ var (
 			migration: migration16.MigrateSequenceIndex,
 		},
 		{
+
 			// Create a top level bucket which will store extra
 			// information about channel closes.
 			number:    17,
 			migration: mig.CreateTLB(closeSummaryBucket),
+		},
+		{
+			// Create a top level bucket which holds information
+			// about our peers.
+			number:    18,
+			migration: mig.CreateTLB(peerBucket),
 		},
 	}
 
@@ -277,6 +284,7 @@ var topLevelBuckets = [][]byte{
 	invoiceBucket,
 	payAddrIndexBucket,
 	paymentsIndexBucket,
+	peerBucket,
 	nodeInfoBucket,
 	nodeBucket,
 	edgeBucket,
