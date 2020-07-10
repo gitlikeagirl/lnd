@@ -2617,6 +2617,11 @@
         "remote_constraints": {
           "$ref": "#/definitions/lnrpcChannelConstraints",
           "description": "List constraints for the remote node."
+        },
+        "flap_count": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of times the peer has been observed as offline, recorded for all\ntime (not necessarily just over this channel's lifetime)."
         }
       }
     },

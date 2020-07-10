@@ -252,66 +252,13 @@ func TestStoreFlapCount(t *testing.T) {
 	testCtx.stop()
 }
 
-// TestGetLifetime tests the GetLifetime function for the cases where a channel
-// is known and unknown to the store.
-func TestGetLifetime(t *testing.T) {
-	tests := []struct {
-		name          string
-		channelFound  bool
-		channelPoint  wire.OutPoint
-		opened        time.Time
-		closed        time.Time
-		expectedError error
-	}{
-		{
-			name:          "Channel found",
-			channelFound:  true,
-			opened:        testNow,
-			closed:        testNow.Add(time.Hour * -1),
-			expectedError: nil,
-		},
-		{
-			name:          "Channel not found",
-			expectedError: ErrChannelNotFound,
-		},
-	}
+// TestGetChanInfo tests the GetChanInfo function for the cases where a channel
+// is known and unknown to the store. It also tests the unexpected edge cases
+// where a tracked channel does not have any events recorded.
+func TestGetChanInfo(t *testing.T) {
+	// Set a non-zero flap count
+	var flapCount uint32 = 20
 
-	for _, test := range tests {
-		test := test
-
-		t.Run(test.name, func(t *testing.T) {
-			ctx := newChanEventStoreTestCtx(t)
-
-			// Add channel to eventStore if the test indicates that
-			// it should be present.
-			if test.channelFound {
-				ctx.store.channels[test.channelPoint] =
-					&chanEventLog{
-						openedAt: test.opened,
-						closedAt: test.closed,
-					}
-			}
-
-			ctx.start()
-			defer func() {
-				ctx.stop()
-			}()
-
-			open, close, err := ctx.store.GetLifespan(test.channelPoint)
-			require.Equal(t, test.expectedError, err)
-
-			require.Equal(t, test.opened, open)
-			require.Equal(t, test.closed, close)
-		})
-	}
-}
-
-// TestGetUptime tests the getUptime call for channels known to the event store.
-// It does not test the trivial case where a channel is unknown to the store,
-// because this is simply a zero return if an item is not found in a map. It
-// tests the unexpected edge cases where a tracked channel does not have any
-// events recorded, and when a zero time is specified for the uptime range.
-func TestGetUptime(t *testing.T) {
 	twoHoursAgo := testNow.Add(time.Hour * -2)
 	fourHoursAgo := testNow.Add(time.Hour * -4)
 
@@ -336,24 +283,19 @@ func TestGetUptime(t *testing.T) {
 		// store.
 		channelFound bool
 
-		// startTime specifies the beginning of the uptime range we want
-		// to calculate.
-		startTime time.Time
-
-		// endTime specified the end of the uptime range we want to
-		// calculate.
-		endTime time.Time
-
+		// expectedUptime is the total uptime we expect.
 		expectedUptime time.Duration
+
+		// expectedLifetime is the total lifetime we expect.
+		expectedLifetime time.Duration
 
 		expectedError error
 	}{
 		{
 			name:          "No events",
-			startTime:     twoHoursAgo,
-			endTime:       testNow,
 			channelFound:  true,
 			expectedError: nil,
+			openedAt:      testNow,
 		},
 		{
 			name: "50% Uptime",
@@ -367,31 +309,14 @@ func TestGetUptime(t *testing.T) {
 					eventType: peerOfflineEvent,
 				},
 			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 2,
-			startTime:      fourHoursAgo,
-			endTime:        testNow,
-			channelFound:   true,
-			expectedError:  nil,
-		},
-		{
-			name: "Zero start time",
-			events: []*channelEvent{
-				{
-					timestamp: fourHoursAgo,
-					eventType: peerOnlineEvent,
-				},
-			},
-			openedAt:       fourHoursAgo,
-			expectedUptime: time.Hour * 4,
-			endTime:        testNow,
-			channelFound:   true,
-			expectedError:  nil,
+			openedAt:         fourHoursAgo,
+			expectedUptime:   time.Hour * 2,
+			expectedLifetime: time.Hour * 4,
+			channelFound:     true,
+			expectedError:    nil,
 		},
 		{
 			name:          "Channel not found",
-			startTime:     twoHoursAgo,
-			endTime:       testNow,
 			channelFound:  false,
 			expectedError: ErrChannelNotFound,
 		},
@@ -407,10 +332,11 @@ func TestGetUptime(t *testing.T) {
 			// add events for it to the store.
 			if test.channelFound {
 				ctx.store.channels[test.channelPoint] = &chanEventLog{
-					events:   test.events,
-					now:      testClock.Now,
-					openedAt: test.openedAt,
-					closedAt: test.closedAt,
+					events:    test.events,
+					now:       testClock.Now,
+					openedAt:  test.openedAt,
+					closedAt:  test.closedAt,
+					flapCount: flapCount,
 				}
 			}
 
@@ -420,11 +346,18 @@ func TestGetUptime(t *testing.T) {
 				ctx.stop()
 			}()
 
-			uptime, err := ctx.store.GetUptime(
-				test.channelPoint, test.startTime, test.endTime,
-			)
+			info, err := ctx.store.GetChanInfo(test.channelPoint)
 			require.Equal(t, test.expectedError, err)
-			require.Equal(t, test.expectedUptime, uptime)
+
+			// If we expect an error, our info will be nil so we
+			// exit early rather than check its values.
+			if err != nil {
+				return
+			}
+
+			require.Equal(t, test.expectedUptime, info.Uptime)
+			require.Equal(t, test.expectedLifetime, info.Lifetime)
+			require.Equal(t, flapCount, info.FlapCount)
 		})
 	}
 }

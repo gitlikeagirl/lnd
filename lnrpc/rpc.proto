@@ -1168,6 +1168,12 @@ message Channel {
 
     // List constraints for the remote node.
     ChannelConstraints remote_constraints = 30;
+
+    /*
+    The number of times the peer has been observed as offline, recorded for all
+    time (not necessarily just over this channel's lifetime).
+    */
+    uint32 flap_count = 31;
 }
 
 message ListChannelsRequest {
