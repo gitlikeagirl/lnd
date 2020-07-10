@@ -59,6 +59,7 @@ import (
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/localchans"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/lightningnetwork/lnd/tor"
@@ -1187,9 +1188,13 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 
 	// Create a channel event store which monitors all open channels.
 	s.chanEventStore = chanfitness.NewChannelEventStore(&chanfitness.Config{
-		SubscribeChannelEvents: s.channelNotifier.SubscribeChannelEvents,
-		SubscribePeerEvents:    s.peerNotifier.SubscribePeerEvents,
-		GetOpenChannels:        s.chanDB.FetchAllOpenChannels,
+		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
+			return s.channelNotifier.SubscribeChannelEvents()
+		},
+		SubscribePeerEvents: func() (subscribe.Subscription, error) {
+			return s.peerNotifier.SubscribePeerEvents()
+		},
+		GetOpenChannels: s.chanDB.FetchAllOpenChannels,
 	})
 
 	if cfg.WtClient.Active {
