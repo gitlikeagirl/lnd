@@ -1195,6 +1195,7 @@ func newServer(cfg *Config, listenAddrs []net.Addr, chanDB *channeldb.DB,
 			return s.peerNotifier.SubscribePeerEvents()
 		},
 		GetOpenChannels: s.chanDB.FetchAllOpenChannels,
+		Clock:           clock.NewDefaultClock(),
 	})
 
 	if cfg.WtClient.Active {

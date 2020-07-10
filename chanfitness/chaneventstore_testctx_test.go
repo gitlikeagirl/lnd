@@ -54,6 +54,7 @@ func newChanEventStoreTestCtx(t *testing.T) *chanEventStoreTestCtx {
 	}
 
 	cfg := &Config{
+		Clock: testClock,
 		SubscribeChannelEvents: func() (subscribe.Subscription, error) {
 			return testCtx.channelSubscription, nil
 		},

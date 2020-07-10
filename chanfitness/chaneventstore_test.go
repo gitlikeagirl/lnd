@@ -7,8 +7,17 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/subscribe"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	// testNow is the current time tests will use.
+	testNow = time.Unix(1592465134, 0)
+
+	// testClock provides a mocked clock for testing.
+	testClock = clock.NewTestClock(testNow)
 )
 
 // TestStartStoreError tests the starting of the store in cases where the setup
@@ -58,6 +67,7 @@ func TestStartStoreError(t *testing.T) {
 				SubscribeChannelEvents: test.ChannelEvents,
 				SubscribePeerEvents:    test.PeerEvents,
 				GetOpenChannels:        test.GetChannels,
+				Clock:                  testClock,
 			})
 
 			err := store.Start()
@@ -203,8 +213,6 @@ func TestMonitorChannelEvents(t *testing.T) {
 // TestGetLifetime tests the GetLifetime function for the cases where a channel
 // is known and unknown to the store.
 func TestGetLifetime(t *testing.T) {
-	now := time.Now()
-
 	tests := []struct {
 		name          string
 		channelFound  bool
@@ -216,8 +224,8 @@ func TestGetLifetime(t *testing.T) {
 		{
 			name:          "Channel found",
 			channelFound:  true,
-			opened:        now,
-			closed:        now.Add(time.Hour * -1),
+			opened:        testNow,
+			closed:        testNow.Add(time.Hour * -1),
 			expectedError: nil,
 		},
 		{
@@ -262,11 +270,8 @@ func TestGetLifetime(t *testing.T) {
 // tests the unexpected edge cases where a tracked channel does not have any
 // events recorded, and when a zero time is specified for the uptime range.
 func TestGetUptime(t *testing.T) {
-	// Set time for deterministic unit tests.
-	now := time.Now()
-
-	twoHoursAgo := now.Add(time.Hour * -2)
-	fourHoursAgo := now.Add(time.Hour * -4)
+	twoHoursAgo := testNow.Add(time.Hour * -2)
+	fourHoursAgo := testNow.Add(time.Hour * -4)
 
 	tests := []struct {
 		name string
@@ -304,7 +309,7 @@ func TestGetUptime(t *testing.T) {
 		{
 			name:          "No events",
 			startTime:     twoHoursAgo,
-			endTime:       now,
+			endTime:       testNow,
 			channelFound:  true,
 			expectedError: nil,
 		},
@@ -323,7 +328,7 @@ func TestGetUptime(t *testing.T) {
 			openedAt:       fourHoursAgo,
 			expectedUptime: time.Hour * 2,
 			startTime:      fourHoursAgo,
-			endTime:        now,
+			endTime:        testNow,
 			channelFound:   true,
 			expectedError:  nil,
 		},
@@ -337,14 +342,14 @@ func TestGetUptime(t *testing.T) {
 			},
 			openedAt:       fourHoursAgo,
 			expectedUptime: time.Hour * 4,
-			endTime:        now,
+			endTime:        testNow,
 			channelFound:   true,
 			expectedError:  nil,
 		},
 		{
 			name:          "Channel not found",
 			startTime:     twoHoursAgo,
-			endTime:       now,
+			endTime:       testNow,
 			channelFound:  false,
 			expectedError: ErrChannelNotFound,
 		},
@@ -361,7 +366,7 @@ func TestGetUptime(t *testing.T) {
 			if test.channelFound {
 				ctx.store.channels[test.channelPoint] = &chanEventLog{
 					events:   test.events,
-					now:      func() time.Time { return now },
+					now:      testClock.Now,
 					openedAt: test.openedAt,
 					closedAt: test.closedAt,
 				}
