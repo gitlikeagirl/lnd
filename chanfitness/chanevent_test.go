@@ -3,6 +3,8 @@ package chanfitness
 import (
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // TestAdd tests adding events to an event log. It tests the case where the
@@ -10,26 +12,32 @@ import (
 // closed and the event should not be added.
 func TestAdd(t *testing.T) {
 	tests := []struct {
-		name     string
-		eventLog *chanEventLog
-		event    eventType
-		expected []eventType
+		name           string
+		eventLog       *chanEventLog
+		event          eventType
+		expectedEvents []*channelEvent
 	}{
 		{
 			name: "Channel open",
 			eventLog: &chanEventLog{
 				now: testClock.Now,
 			},
-			event:    peerOnlineEvent,
-			expected: []eventType{peerOnlineEvent},
+			event: peerOnlineEvent,
+			expectedEvents: []*channelEvent{
+				&channelEvent{
+					eventType: peerOnlineEvent,
+					timestamp: testNow,
+				},
+			},
 		},
 		{
 			name: "Channel closed, event not added",
 			eventLog: &chanEventLog{
-				now: testClock.Now,
+				now:      testClock.Now,
+				closedAt: testNow,
 			},
-			event:    peerOnlineEvent,
-			expected: []eventType{},
+			event:          peerOnlineEvent,
+			expectedEvents: nil,
 		},
 	}
 
@@ -39,14 +47,9 @@ func TestAdd(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			test.eventLog.add(test.event)
 
-			for i, e := range test.expected {
-				eventType := test.eventLog.events[i].eventType
-				if eventType != e {
-					t.Fatalf("Expected event type: %v, "+
-						"got: %v", e, eventType,
-					)
-				}
-			}
+			require.Equal(
+				t, test.expectedEvents, test.eventLog.events,
+			)
 		})
 	}
 }
@@ -144,22 +147,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 
 			online := score.getOnlinePeriods()
 
-			if len(online) != len(test.expectedOnline) {
-				t.Fatalf("Expectd: %v online periods, got: %v",
-					len(test.expectedOnline), len(online))
-			}
-
-			for i, o := range test.expectedOnline {
-				if online[i].start != o.start {
-					t.Errorf("Expected start: %v, got "+
-						"%v", o.start, online[i].start)
-				}
-
-				if online[i].end != o.end {
-					t.Errorf("Expected end: %v, got %v",
-						o.end, online[i].end)
-				}
-			}
+			require.Equal(t, test.expectedOnline, online)
 		})
 
 	}
@@ -376,17 +364,8 @@ func TestUptime(t *testing.T) {
 			uptime, err := score.uptime(
 				test.startTime, test.endTime,
 			)
-			if test.expectErr && err == nil {
-				t.Fatal("Expected an error, got nil")
-			}
-			if !test.expectErr && err != nil {
-				t.Fatalf("Expcted no error, got: %v", err)
-			}
-
-			if uptime != test.expectedUptime {
-				t.Errorf("Expected uptime: %v, got: %v",
-					test.expectedUptime, uptime)
-			}
+			require.Equal(t, test.expectErr, err != nil)
+			require.Equal(t, test.expectedUptime, uptime)
 		})
 	}
 }
