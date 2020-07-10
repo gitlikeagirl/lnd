@@ -44,7 +44,35 @@ type chanEventLog struct {
 	peer route.Vertex
 
 	// events is a log of timestamped events observed for the channel.
+	// This list holds a set of events that we have committed to allocating
+	// resources to.
 	events []*channelEvent
+
+	// stagedEvent represents an event that is pending addition to the
+	// events list. It has not yet been added because we rate limit the
+	// frequency that we store events at. We need to store this value
+	// in the log (rather than just ignore events) so that we can flush the
+	// aggregate outcome to our event log once the rate limiting period has
+	// ended.
+	//
+	// Take the following example:
+	// - Peer online event recorded
+	// - Peer offline event, not recorded due to rate limit
+	// - No more events, we incorrectly believe our peer to be offline
+	// Instead of skipping events, we stage the most recent event during the
+	// rate limited period so that we know what happened (on aggregate)
+	// while we were rate limiting events.
+	//
+	// Note that we currently only store offline/online events so we can
+	// use this field to track our online state. With the addition of other
+	// event types, we need to only stage online/offline events, or split
+	// them out.
+	stagedEvent *channelEvent
+
+	// flapCount counts the number of offline events we have processed
+	// for our peer. This gives us an idea of the reliability of
+	// our peers, and provides us with the ability to rate limit them.
+	flapCount uint32
 
 	// now is expected to return the current time. It is supplied as an
 	// external function to enable deterministic unit tests.
@@ -79,9 +107,22 @@ func (e *chanEventLog) close() {
 	e.closedAt = e.now()
 }
 
+// listEvents returns all of the events that our event log has tracked,
+// including events that are staged for addition to our set of events but have
+// not yet been committed to (because we rate limit and store only the aggregate
+// outcome over a period).
+func (e *chanEventLog) listEvents() []*channelEvent {
+	if e.stagedEvent == nil {
+		return e.events
+	}
+
+	return append(e.events, e.stagedEvent)
+}
+
 // add appends an event with the given type and current time to the event log.
 // The open time for the eventLog will be set to the event's timestamp if it is
-// not set yet.
+// not set yet. This add function rate limits our peer events based on our
+// peer's flap rate.
 func (e *chanEventLog) add(eventType eventType) {
 	// If the channel is already closed, return early without adding an
 	// event.
@@ -89,14 +130,43 @@ func (e *chanEventLog) add(eventType eventType) {
 		return
 	}
 
-	// Add the event to the eventLog with the current timestamp.
+	// Once we know our channel is open, we increment our flap count. Note
+	// that we do this for every event because we are currently *only*
+	// tracking peer online/offline events. If we expand our event types to
+	// include other events, we should only track flaps for online/offline
+	// events.
+	if eventType == peerOfflineEvent {
+		e.flapCount++
+	}
+
 	event := &channelEvent{
 		timestamp: e.now(),
 		eventType: eventType,
 	}
-	e.events = append(e.events, event)
 
-	log.Debugf("Channel %v recording event: %v", e.channelPoint, eventType)
+	// If we have no staged events, we can just stage this event and return.
+	if e.stagedEvent == nil {
+		e.stagedEvent = event
+		return
+	}
+
+	// We get the amount of time we require between events according to
+	// peer flap count.
+	aggregation := getRateLimit(e.flapCount)
+	nextRecordTime := e.stagedEvent.timestamp.Add(aggregation)
+	flushEvent := nextRecordTime.Before(event.timestamp)
+
+	// If enough time has passed since our last staged event, we add our
+	// event to our in-memory list.
+	if flushEvent {
+		e.events = append(e.events, e.stagedEvent)
+
+		log.Debugf("Channel %v recording event: %v",
+			e.channelPoint, eventType)
+	}
+
+	// Finally, we replace our staged event with the new event we received.
+	e.stagedEvent = event
 }
 
 // onlinePeriod represents a period of time over which a peer was online.
@@ -133,7 +203,7 @@ func (e *chanEventLog) getOnlinePeriods() []*onlinePeriod {
 	// the online event and the present is not tracked. The type of the most
 	// recent event is tracked using the offline bool so that we can add a
 	// final online period if necessary.
-	for _, event := range e.events {
+	for _, event := range e.listEvents() {
 		switch event.eventType {
 		case peerOnlineEvent:
 			// If our previous event is nil, we just set it and

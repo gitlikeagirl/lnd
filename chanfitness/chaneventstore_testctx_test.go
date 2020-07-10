@@ -184,7 +184,7 @@ func (c *chanEventStoreTestCtx) assertEvents(channel wire.OutPoint,
 	require.False(c.t, eventLog.openedAt.IsZero(), "zero open time")
 
 	// Assert that we have the number of events we expect.
-	actualEvents := eventLog.events
+	actualEvents := eventLog.listEvents()
 	require.Len(c.t, actualEvents, len(events), "event count wrong")
 
 	// Run through our expected events and check that we have the

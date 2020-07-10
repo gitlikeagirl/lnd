@@ -4,6 +4,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightningnetwork/lnd/routing/route"
+
+	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -16,18 +20,18 @@ func TestAdd(t *testing.T) {
 		eventLog       *chanEventLog
 		event          eventType
 		expectedEvents []*channelEvent
+		expectedStaged *channelEvent
 	}{
 		{
 			name: "Channel open",
 			eventLog: &chanEventLog{
 				now: testClock.Now,
 			},
-			event: peerOnlineEvent,
-			expectedEvents: []*channelEvent{
-				&channelEvent{
-					eventType: peerOnlineEvent,
-					timestamp: testNow,
-				},
+			event:          peerOnlineEvent,
+			expectedEvents: nil,
+			expectedStaged: &channelEvent{
+				eventType: peerOnlineEvent,
+				timestamp: testNow,
 			},
 		},
 		{
@@ -38,6 +42,7 @@ func TestAdd(t *testing.T) {
 			},
 			event:          peerOnlineEvent,
 			expectedEvents: nil,
+			expectedStaged: nil,
 		},
 	}
 
@@ -50,7 +55,89 @@ func TestAdd(t *testing.T) {
 			require.Equal(
 				t, test.expectedEvents, test.eventLog.events,
 			)
+
+			require.Equal(
+				t, test.expectedStaged,
+				test.eventLog.stagedEvent,
+			)
 		})
+	}
+}
+
+// TestRateLimitAdd tests the addition of events to the event log with rate
+// limiting in place.
+func TestRateLimitAdd(t *testing.T) {
+	// Create a mock clock specifically for this test so that we can
+	// progress time without affecting the other tests.
+	mockedClock := clock.NewTestClock(testNow)
+
+	// Create an event log, we expect our staged event to be nil.
+	var (
+		vertex   = route.Vertex{1, 2}
+		outpoint = wire.OutPoint{Index: 1}
+	)
+
+	eventLog := newEventLog(outpoint, vertex, mockedClock.Now)
+	require.Nil(t, eventLog.stagedEvent)
+
+	// First, we add an event to the event log. Since we have no previous
+	// events, we expect this event to staged immediately.
+	event := &channelEvent{
+		timestamp: testNow,
+		eventType: peerOfflineEvent,
+	}
+
+	eventLog.add(event.eventType)
+	require.Equal(t, event, eventLog.stagedEvent)
+
+	// We immediately add another event to our event log. We expect our
+	// staged event to be replaced with this new event, because insufficient
+	// time has passed since our last event.
+	event = &channelEvent{
+		timestamp: testNow,
+		eventType: peerOnlineEvent,
+	}
+
+	eventLog.add(event.eventType)
+	require.Equal(t, event, eventLog.stagedEvent)
+
+	// We get the amount of time that we need to pass before we record an
+	// event from our rate limiting tiers. We then progress our test clock
+	// to just after this point.
+	delta := getRateLimit(eventLog.flapCount)
+	newNow := testNow.Add(delta + 1)
+	mockedClock.SetTime(newNow)
+
+	// Now, when we add an event, we expect our staged event to be added
+	// to our events list and for our new event to be staged.
+	newEvent := &channelEvent{
+		timestamp: newNow,
+		eventType: peerOfflineEvent,
+	}
+	eventLog.add(newEvent.eventType)
+
+	require.Equal(t, []*channelEvent{event}, eventLog.events)
+	require.Equal(t, newEvent, eventLog.stagedEvent)
+
+	// Now, we test the case where we add many events to our log. We expect
+	// our set of events to be untouched, but for our staged event to be
+	// updated.
+	nextEvent := &channelEvent{
+		timestamp: newNow,
+		eventType: peerOnlineEvent,
+	}
+	for i := 0; i < 5; i++ {
+		// We flip the kind of event for each type so that we can check
+		// that our staged event is definitely changing each time.
+		if i%2 == 0 {
+			nextEvent.eventType = peerOfflineEvent
+		} else {
+			nextEvent.eventType = peerOnlineEvent
+		}
+
+		eventLog.add(nextEvent.eventType)
+		require.Equal(t, []*channelEvent{event}, eventLog.events)
+		require.Equal(t, nextEvent, eventLog.stagedEvent)
 	}
 }
 
