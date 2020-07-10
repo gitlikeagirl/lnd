@@ -71,10 +71,10 @@ func TestGetOnlinePeriod(t *testing.T) {
 		closedAt       time.Time
 	}{
 		{
-			name: "No events",
+			name: "no events",
 		},
 		{
-			name: "Start on online period",
+			name: "start on online period",
 			events: []*channelEvent{
 				{
 					timestamp: threeHoursAgo,
@@ -93,7 +93,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "Start on offline period",
+			name: "start on offline period",
 			events: []*channelEvent{
 				{
 					timestamp: fourHoursAgo,
@@ -102,7 +102,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "End on an online period, channel not closed",
+			name: "end on an online period, channel not closed",
 			events: []*channelEvent{
 				{
 					timestamp: fourHoursAgo,
@@ -117,7 +117,7 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 		},
 		{
-			name: "End on an online period, channel closed",
+			name: "end on an online period, channel closed",
 			events: []*channelEvent{
 				{
 					timestamp: fourHoursAgo,
@@ -132,12 +132,113 @@ func TestGetOnlinePeriod(t *testing.T) {
 			},
 			closedAt: oneHourAgo,
 		},
+		{
+			name: "duplicate online events, channel not closed",
+			events: []*channelEvent{
+				{
+					timestamp: fourHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+				{
+					timestamp: threeHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+			},
+			expectedOnline: []*onlinePeriod{
+				{
+					start: fourHoursAgo,
+					end:   testClock.Now(),
+				},
+			},
+		},
+		{
+			name: "duplicate online events, channel closed",
+			events: []*channelEvent{
+				{
+					timestamp: fourHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+				{
+					timestamp: twoHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+			},
+			expectedOnline: []*onlinePeriod{
+				{
+					start: fourHoursAgo,
+					end:   threeHoursAgo,
+				},
+			},
+			closedAt: threeHoursAgo,
+		},
+		{
+			name: "duplicate offline events, channel not closed",
+			events: []*channelEvent{
+				{
+					timestamp: fourHoursAgo,
+					eventType: peerOfflineEvent,
+				},
+				{
+					timestamp: threeHoursAgo,
+					eventType: peerOfflineEvent,
+				},
+			},
+			expectedOnline: nil,
+		},
+		{
+			name: "duplicate online then offline",
+			events: []*channelEvent{
+				{
+					timestamp: fourHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+				{
+					timestamp: threeHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+				{
+					timestamp: twoHoursAgo,
+					eventType: peerOfflineEvent,
+				},
+			},
+			expectedOnline: []*onlinePeriod{
+				{
+					start: fourHoursAgo,
+					end:   twoHoursAgo,
+				},
+			},
+		},
+		{
+			name: "duplicate offline then online",
+			events: []*channelEvent{
+				{
+					timestamp: fourHoursAgo,
+					eventType: peerOfflineEvent,
+				},
+				{
+					timestamp: threeHoursAgo,
+					eventType: peerOfflineEvent,
+				},
+				{
+					timestamp: twoHoursAgo,
+					eventType: peerOnlineEvent,
+				},
+			},
+			expectedOnline: []*onlinePeriod{
+				{
+					start: twoHoursAgo,
+					end:   testClock.Now(),
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
 		test := test
 
 		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
 			score := &chanEventLog{
 				events:   test.events,
 				now:      testClock.Now,
