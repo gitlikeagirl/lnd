@@ -23,11 +23,17 @@ var (
 // the lnd runs.
 type HealthCheckConfig struct {
 	ChainCheck *CheckConfig `group:"chainbackend" namespace:"chainbackend"`
+
+	DiskCheck *DiskCheckConfig `group:"diskspace" namespace:"diskspace"`
 }
 
 // Validate checks the values configured for our health checks.
 func (h *HealthCheckConfig) Validate() error {
-	return h.ChainCheck.validate("chain backend")
+	if err := h.ChainCheck.validate("chain backend"); err != nil {
+		return err
+	}
+
+	return h.DiskCheck.validate("disk space")
 }
 
 type CheckConfig struct {
@@ -62,4 +68,12 @@ func (c *CheckConfig) validate(name string) error {
 	}
 
 	return nil
+}
+
+// DiskCheckConfig contains configuration for ensuring that our node has
+// sufficient disk space.
+type DiskCheckConfig struct {
+	RequiredRemaining float64 `long:"diskrequired" description:"The minimum ratio of free disk space to total capacity that we allow before shutting lnd down safely."`
+
+	*CheckConfig
 }
