@@ -31,6 +31,11 @@ var (
 	// ErrDryRunMigrationOK signals that a migration executed successful,
 	// but we intentionally did not commit the result.
 	ErrDryRunMigrationOK = errors.New("dry run migration successful")
+
+	// ErrAbandonClosingChannel is returned when an attempt is made to
+	// abandon a channel that is not in the right state.
+	ErrAbandonClosingChannel = errors.New("cannot abandon channel " +
+		"that is not pending open or open")
 )
 
 // migration is a function which takes a prior outdated version of the database
@@ -1069,8 +1074,11 @@ func (d *DB) AddrsForNode(nodePub *btcec.PublicKey) ([]net.Addr, error) {
 }
 
 // AbandonChannel attempts to remove the target channel from the open channel
-// database. If the channel was already removed (has a closed channel entry),
-// then we'll return a nil error. Otherwise, we'll insert a new close summary
+// database. This function can only be called for channels that are not in the
+// process of closing (ie, channels that have default channel status), with the
+// exception of channels that are marked as borked. If the channel was already
+// removed (has a closed channel entry), then we'll return a nil error. Channels
+// that are pending close will fail, otherwise we'll insert a new close summary
 // into the database.
 func (db *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error {
 	// With the chanPoint constructed, we'll attempt to find the target
@@ -1091,6 +1099,20 @@ func (db *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error 
 		return nil
 	case err != nil:
 		return err
+	}
+
+	// We only want to abandon channels that are pending or open. These
+	// channels only have the default channel status set. When we abandon
+	// a channel, we mark it as borked. Since we want to be able to resume
+	// a previous abandon call, we only check our status if the channel
+	// does not have the borked channel status.
+	isBorked := dbChan.HasChanStatus(ChanStatusBorked)
+
+	// In the case where we are not borked (which indicates this may be a
+	// half-abandoned channel), we fail if we do not have default status,
+	// because this indicates that the channel is in the process of closing.
+	if !isBorked && dbChan.chanStatus != ChanStatusDefault {
+		return ErrAbandonClosingChannel
 	}
 
 	// Now that we've found the channel, we'll populate a close summary for

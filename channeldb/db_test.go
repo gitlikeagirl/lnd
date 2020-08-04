@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/shachain"
+	"github.com/stretchr/testify/require"
 )
 
 func TestOpenWithCreate(t *testing.T) {
@@ -441,7 +442,10 @@ func TestRestoreChannelShells(t *testing.T) {
 // TestAbandonChannel tests that the AbandonChannel method is able to properly
 // remove a channel from the database and add a close channel summary. If
 // called after a channel has already been removed, the method shouldn't return
-// an error.
+// an error. The function should be able to abandon channels that are already
+// marked as borked, but otherwise should fail if the channel does not have
+// the default channel status, because this indicates that the channel is in
+// the process of closing.
 func TestAbandonChannel(t *testing.T) {
 	t.Parallel()
 
@@ -490,6 +494,25 @@ func TestAbandonChannel(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to abandon channel: %v", err)
 	}
+
+	// Now, we create another channel that we immediately bork to test the
+	// case where we resume a channel abandon half way through.
+	borkedChannel := createTestChannel(t, cdb)
+	err = borkedChannel.ApplyChanStatus(ChanStatusBorked)
+	require.NoError(t, err, "status update failed")
+
+	err = cdb.AbandonChannel(&borkedChannel.FundingOutpoint, closeHeight)
+	require.NoError(t, err, "could not abandon borked channel")
+
+	// To test that we do not allow abandoning of channels that are closing
+	// create a channel that has commit broadcast status.
+	closingChannel := createTestChannel(t, cdb)
+	err = closingChannel.ApplyChanStatus(ChanStatusCommitBroadcasted)
+	require.NoError(t, err, "status update failed")
+
+	err = cdb.AbandonChannel(&closingChannel.FundingOutpoint, closeHeight)
+	require.Equal(t, ErrAbandonClosingChannel, err,
+		"closing channel didn't fail")
 }
 
 // TestFetchChannels tests the filtering of open channels in fetchChannels.
