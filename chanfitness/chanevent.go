@@ -43,8 +43,34 @@ type peerLog struct {
 	// online stores whether the peer is currently online.
 	online bool
 
-	// events is a log of timestamped events observed for the peer.
+	// events is a log of timestamped events observed for the peer that we
+	// have committed to allocating memory to.
 	onlineEvents []*event
+
+	// stagedEvent represents an event that is pending addition to the
+	// events list. It has not yet been added because we rate limit the
+	// frequency that we store events at. We need to store this value
+	// in the log (rather than just ignore events) so that we can flush the
+	// aggregate outcome to our event log once the rate limiting period has
+	// ended.
+	//
+	// Take the following example:
+	// - Peer online event recorded
+	// - Peer offline event, not recorded due to rate limit
+	// - No more events, we incorrectly believe our peer to be offline
+	// Instead of skipping events, we stage the most recent event during the
+	// rate limited period so that we know what happened (on aggregate)
+	// while we were rate limiting events.
+	//
+	// Note that we currently only store offline/online events so we can
+	// use this field to track our online state. With the addition of other
+	// event types, we need to only stage online/offline events, or split
+	// them out.
+	stagedEvent *event
+
+	// flapCount is the number of times this peer has been observed as
+	// going offline.
+	flapCount int
 
 	// clock allows creation of deterministic unit tests.
 	clock clock.Clock
@@ -95,6 +121,7 @@ func (p *peerLog) addOnlineEvent(online bool, time time.Time) {
 	eventType := peerOnlineEvent
 	if !online {
 		eventType = peerOfflineEvent
+		p.flapCount++
 	}
 
 	event := &event{
@@ -102,7 +129,26 @@ func (p *peerLog) addOnlineEvent(online bool, time time.Time) {
 		eventType: eventType,
 	}
 
-	p.onlineEvents = append(p.onlineEvents, event)
+	// If we have no staged events, we can just stage this event and return.
+	if p.stagedEvent == nil {
+		p.stagedEvent = event
+		return
+	}
+
+	// We get the amount of time we require between events according to
+	// peer flap count.
+	aggregation := getRateLimit(p.flapCount)
+	nextRecordTime := p.stagedEvent.timestamp.Add(aggregation)
+	flushEvent := nextRecordTime.Before(event.timestamp)
+
+	// If enough time has passed since our last staged event, we add our
+	// event to our in-memory list.
+	if flushEvent {
+		p.onlineEvents = append(p.onlineEvents, p.stagedEvent)
+	}
+
+	// Finally, we replace our staged event with the new event we received.
+	p.stagedEvent = event
 }
 
 // addChanel adds a channel to our log. If we have not tracked any online events
@@ -145,6 +191,7 @@ func (p *peerLog) removeChannel(channelPoint wire.OutPoint) error {
 	// TODO(carla): this could be done on a per channel basis.
 	if p.channelCount() == 0 {
 		p.onlineEvents = nil
+		p.stagedEvent = nil
 	}
 
 	return nil
@@ -176,6 +223,23 @@ func (p *peerLog) channelUptime(channelPoint wire.OutPoint) (time.Duration,
 	return now.Sub(channel.openedAt), uptime, nil
 }
 
+// getFlapCount returns the flap count for the peer.
+func (p *peerLog) getFlapCount() int {
+	return p.flapCount
+}
+
+// listEvents returns all of the events that our event log has tracked,
+// including events that are staged for addition to our set of events but have
+// not yet been committed to (because we rate limit and store only the aggregate
+// outcome over a period).
+func (p *peerLog) listEvents() []*event {
+	if p.stagedEvent == nil {
+		return p.onlineEvents
+	}
+
+	return append(p.onlineEvents, p.stagedEvent)
+}
+
 // onlinePeriod represents a period of time over which a peer was online.
 type onlinePeriod struct {
 	start, end time.Time
@@ -191,7 +255,7 @@ type onlinePeriod struct {
 // online or offline events.
 func (p *peerLog) getOnlinePeriods() []*onlinePeriod {
 	// Return early if there are no events, there are no online periods.
-	if len(p.onlineEvents) == 0 {
+	if len(p.listEvents()) == 0 {
 		return nil
 	}
 
@@ -210,7 +274,7 @@ func (p *peerLog) getOnlinePeriods() []*onlinePeriod {
 	// the online event and the present is not tracked. The type of the most
 	// recent event is tracked using the offline bool so that we can add a
 	// final online period if necessary.
-	for _, event := range p.onlineEvents {
+	for _, event := range p.listEvents() {
 		switch event.eventType {
 		case peerOnlineEvent:
 			// If our previous event is nil, we just set it and

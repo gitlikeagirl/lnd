@@ -26,4 +26,7 @@ type peerMonitor interface {
 	// the channel has been monitored for and its uptime over this period.
 	channelUptime(channelPoint wire.OutPoint) (time.Duration,
 		time.Duration, error)
+
+	// getFlapCount returns the flap count for the peer.
+	getFlapCount() int
 }

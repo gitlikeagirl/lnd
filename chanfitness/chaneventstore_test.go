@@ -107,7 +107,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, peer1, 1)
+		testEventStore(t, gen, peer1, 1, 0)
 	})
 
 	t.Run("duplicate channel open events", func(t *testing.T) {
@@ -117,7 +117,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, peer1, 1)
+		testEventStore(t, gen, peer1, 1, 0)
 	})
 
 	t.Run("peer online before channel created", func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan1)
 		}
 
-		testEventStore(t, gen, peer1, 1)
+		testEventStore(t, gen, peer1, 1, 0)
 	})
 
 	t.Run("multiple channels for peer", func(t *testing.T) {
@@ -138,7 +138,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.sendChannelOpenedUpdate(pubKey, chan2)
 		}
 
-		testEventStore(t, gen, peer1, 2)
+		testEventStore(t, gen, peer1, 2, 1)
 	})
 
 	t.Run("multiple channels for peer, one closed", func(t *testing.T) {
@@ -153,7 +153,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 			ctx.peerEvent(peer1, true)
 		}
 
-		testEventStore(t, gen, peer1, 1)
+		testEventStore(t, gen, peer1, 1, 1)
 	})
 
 }
@@ -161,7 +161,7 @@ func TestMonitorChannelEvents(t *testing.T) {
 // testEventStore creates a new test contexts, generates a set of events for it
 // and tests that it has the number of channels we expect.
 func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
-	peer route.Vertex, expectedChannels int) {
+	peer route.Vertex, expectedChannels, expectedFlapCount int) {
 
 	testCtx := newChanEventStoreTestCtx(t)
 	testCtx.start()
@@ -177,6 +177,7 @@ func testEventStore(t *testing.T, generateEvents func(*chanEventStoreTestCtx),
 	require.True(t, ok)
 
 	require.Equal(t, expectedChannels, monitor.channelCount())
+	require.Equal(t, expectedFlapCount, monitor.getFlapCount())
 }
 
 // TestGetChanInfo tests the GetChanInfo function for the cases where a channel
