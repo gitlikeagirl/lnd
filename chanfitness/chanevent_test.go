@@ -12,7 +12,7 @@ import (
 // TestPeerLog tests the functionality of the peer log struct.
 func TestPeerLog(t *testing.T) {
 	clock := clock.NewTestClock(testNow)
-	peerLog := newPeerLog(clock)
+	peerLog := newPeerLog(clock, 0)
 
 	require.Zero(t, peerLog.channelCount())
 	require.False(t, peerLog.online)
@@ -106,7 +106,7 @@ func TestRateLimitAdd(t *testing.T) {
 	mockedClock := clock.NewTestClock(testNow)
 
 	// Create a new peer log.
-	peerLog := newPeerLog(mockedClock)
+	peerLog := newPeerLog(mockedClock, 0)
 	require.Nil(t, peerLog.stagedEvent)
 
 	// Create a channel for our peer log, otherwise it will not track online
