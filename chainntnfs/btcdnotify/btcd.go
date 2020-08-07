@@ -467,10 +467,18 @@ out:
 		case item := <-b.txUpdates.ChanOut():
 			newSpend := item.(*txUpdate)
 
-			// We only care about notifying on confirmed spends, so
-			// if this is a mempool spend, we can ignore it and wait
-			// for the spend to appear in on-chain.
+			// If we have a mempool spend, process it separately to
+			// transactions that have confirmed.
 			if newSpend.details == nil {
+				err := b.txNotifier.ProcessMempoolTx(
+					newSpend.tx.MsgTx(),
+				)
+				if err != nil {
+					chainntnfs.Log.Errorf("Unable to "+
+						"process mempool tx %v: %v",
+						newSpend.tx.Hash(), err)
+				}
+
 				continue
 			}
 

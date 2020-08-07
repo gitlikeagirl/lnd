@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/prometheus/common/log"
 )
 
 const (
@@ -1186,6 +1187,12 @@ func (n *TxNotifier) ProcessRelevantSpendTx(tx *btcutil.Tx,
 		}
 	}
 
+	return nil
+}
+
+// ProcessMempoolTx just logs stuff for now.
+func (n *TxNotifier) ProcessMempoolTx(tx *wire.MsgTx) error {
+	log.Infof("CKC found mempool tx:' %v", tx.TxHash())
 	return nil
 }
 

@@ -413,11 +413,20 @@ out:
 				b.bestBlock = newBestBlock
 
 			case chain.RelevantTx:
-				// We only care about notifying on confirmed
-				// spends, so if this is a mempool spend, we can
-				// ignore it and wait for the spend to appear in
-				// on-chain.
+				// If we have a mempool spend, process it
+				// separately to transactions that have confirmed.
 				if item.Block == nil {
+					err := b.txNotifier.ProcessMempoolTx(
+						&item.TxRecord.MsgTx,
+					)
+					if err != nil {
+						chainntnfs.Log.Errorf("Unable "+
+							"to process mempool "+
+							"tx %v: %v",
+							item.TxRecord.MsgTx.TxHash(),
+							err)
+					}
+
 					continue
 				}
 
