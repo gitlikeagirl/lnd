@@ -57,6 +57,7 @@ require (
 	github.com/miekg/dns v0.0.0-20171125082028-79bfde677fa8
 	github.com/modern-go/reflect2 v1.0.1 // indirect
 	github.com/prometheus/client_golang v0.9.3
+	github.com/prometheus/common v0.4.0
 	github.com/soheilhy/cmux v0.1.4 // indirect
 	github.com/stretchr/testify v1.5.1
 	github.com/tmc/grpc-websocket-proxy v0.0.0-20190109142713-0ad062ec5ee5 // indirect
