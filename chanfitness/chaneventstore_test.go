@@ -260,21 +260,23 @@ func TestGetChanInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)
+	require.Equal(t, uint32(0), info.FlapCount)
 
 	// Now we send a peer offline event for our channel.
 	ctx.peerEvent(peer, false)
 
 	// Since we have not bumped our mocked time, our uptime calculations
 	// should be the same, even though we've just processed an offline
-	// event.
+	// event, but we now expect our flap count to be incremented.
 	info, err = ctx.store.GetChanInfo(channel, peer)
 	require.NoError(t, err)
 	require.Equal(t, time.Hour, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)
+	require.Equal(t, uint32(1), info.FlapCount)
 
 	// Progress our time again. This time, our peer is currently tracked as
 	// being offline, so we expect our channel info to reflect that the peer
-	// has been offline for this period.
+	// has been offline for this period, our flap count should be unchanged.
 	now = now.Add(time.Hour)
 	ctx.clock.SetTime(now)
 
@@ -282,6 +284,7 @@ func TestGetChanInfo(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, time.Hour*2, info.Lifetime)
 	require.Equal(t, time.Hour, info.Uptime)
+	require.Equal(t, uint32(1), info.FlapCount)
 
 	ctx.stop()
 }

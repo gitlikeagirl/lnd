@@ -1135,6 +1135,13 @@ message Channel {
     int64 uptime = 24;
 
     /*
+    The number of times that we have observed the remote peer going offline
+    while we have had channels open with it. Note that this is tracked across
+    all channels for the peer, not just this one.
+    */
+    int32 flap_count = 31;
+
+    /*
     Close address is the address that we will enforce payout to on cooperative
     close if the channel was opened utilizing option upfront shutdown. This
     value can be set on channel open by setting close_address in an open channel

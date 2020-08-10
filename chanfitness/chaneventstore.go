@@ -382,6 +382,11 @@ type ChannelInfo struct {
 	// Uptime is the total amount of time that the channel peer has been
 	// observed as online during the monitored lifespan.
 	Uptime time.Duration
+
+	// FlapCount is the flap count we have recorded for the remote peer.
+	// Note that this value is tracked across all channels we have had open
+	// with the peer, not just the channel being queried.
+	FlapCount int
 }
 
 // GetChanInfo gets all the information we have on a channel in the event store.
@@ -430,8 +435,9 @@ func (c *ChannelEventStore) getChanInfo(req channelInfoRequest) (*ChannelInfo,
 	}
 
 	return &ChannelInfo{
-		Lifetime: lifetime,
-		Uptime:   uptime,
+		Lifetime:  lifetime,
+		Uptime:    uptime,
+		FlapCount: peerMonitor.getFlapCount(),
 	}, nil
 }
 

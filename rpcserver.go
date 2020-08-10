@@ -3478,6 +3478,7 @@ func createRPCOpenChannel(r *rpcServer, graph *channeldb.ChannelGraph,
 	case nil:
 		channel.Uptime = int64(info.Uptime.Seconds())
 		channel.Lifetime = int64(info.Lifetime.Seconds())
+		channel.FlapCount = uint32(info.FlapCount)
 
 	// If we get an unexpected error, we return it.
 	default:
