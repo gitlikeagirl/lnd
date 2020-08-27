@@ -1406,6 +1406,18 @@ message Peer {
     spamming us with errors at no cost.
     */
     repeated TimestampedError errors = 12;
+
+    /*
+    The number of times we have recorded this peer going offline or coming
+    online, recorded across restarts.
+    */
+    int32 flap_count = 13;
+
+    /*
+    The timestamp of the last flap we observed for this peer. If this value is
+    zero, we have not observed any flaps for this peer.
+    */
+    int64 last_flap_ns = 14;
 }
 
 message TimestampedError {
