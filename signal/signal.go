@@ -15,21 +15,21 @@ import (
 
 var (
 	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
-	interruptChannel = make(chan os.Signal, 1)
+	interruptChannel chan os.Signal
 
 	// shutdownRequestChannel is used to request the daemon to shutdown
 	// gracefully, similar to when receiving SIGINT.
-	shutdownRequestChannel = make(chan struct{})
+	shutdownRequestChannel chan struct{}
 
 	// started indicates whether we have started our main interrupt handler.
 	// This field should be used atomically.
 	started int32
 
 	// quit is closed when instructing the main interrupt handler to exit.
-	quit = make(chan struct{})
+	quit chan struct{}
 
 	// shutdownChannel is closed once the main interrupt handler exits.
-	shutdownChannel = make(chan struct{})
+	shutdownChannel chan struct{}
 )
 
 // Intercept starts the interception of interrupt signals. Note that this
@@ -38,6 +38,11 @@ func Intercept() error {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
 		return errors.New("intercept already started")
 	}
+
+	interruptChannel = make(chan os.Signal, 1)
+	shutdownRequestChannel = make(chan struct{})
+	quit = make(chan struct{})
+	shutdownChannel = make(chan struct{})
 
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
@@ -92,6 +97,8 @@ func mainInterruptHandler() {
 		case <-quit:
 			log.Infof("Gracefully shutting down.")
 			close(shutdownChannel)
+			signal.Stop(interruptChannel)
+			atomic.StoreInt32(&started, 0)
 			return
 		}
 	}
