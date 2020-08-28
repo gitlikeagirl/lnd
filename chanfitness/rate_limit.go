@@ -1,11 +1,25 @@
 package chanfitness
 
-import "time"
+import (
+	"math"
+	"time"
+)
 
-// rateLimitScale is the number of events we allow per rate limited tier.
-// Increasing this value makes our rate limiting more lenient, decreasing it
-// makes us less lenient.
-const rateLimitScale = 200
+const (
+	// rateLimitScale is the number of events we allow per rate limited
+	// tier. Increasing this value makes our rate limiting more lenient,
+	// decreasing it makes us less lenient.
+	rateLimitScale = 200
+
+	// flapCountCooldownFactor is the factor by which we decrease a peer's
+	// flap count if they have not flapped for the cooldown period.
+	flapCountCooldownFactor = 0.95
+
+	// flapCountCooldownPeriod is the amount of time that we require a peer
+	// has not flapped for before we reduce their all time flap count using
+	// our cooldown factor.
+	flapCountCooldownPeriod = time.Hour * 24 * 7
+)
 
 // rateLimits is the set of rate limit tiers we apply to our peers based on
 // their flap count. A peer can be placed in their tier by dividing their flap
@@ -34,4 +48,28 @@ func getRateLimit(flapCount int) time.Duration {
 	}
 
 	return rateLimits[tier]
+}
+
+// cooldownFlapCount takes a timestamped flap count, and returns its value
+// scaled down by our cooldown factor if at least our cooldown period has
+// elapsed since the peer last flapped. We do this because we store all-time
+// flap count for peers, and want to allow downgrading of peers that have not
+// flapped for a long time.
+func cooldownFlapCount(now time.Time, flapCount int,
+	lastFlap time.Time) int {
+
+	// Calculate time since our last flap, and the number of times we need
+	// to apply our cooldown factor.
+	timeSinceFlap := now.Sub(lastFlap)
+	cooldownPeriods := timeSinceFlap / flapCountCooldownPeriod
+
+	// Get the factor by which we need to cooldown our flap count. If
+	// insufficient time has passed to cooldown our flap count. If not
+	// enough time has passed to warrant a cooldown, this factor will just
+	// be 1.
+	effectiveFactor := math.Pow(
+		flapCountCooldownFactor, float64(cooldownPeriods),
+	)
+
+	return int(float64(flapCount) * effectiveFactor)
 }
