@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 const (
@@ -196,7 +197,7 @@ type chanArbTestCtx struct {
 
 	resolvedChan chan struct{}
 
-	blockEpochs chan *chainntnfs.BlockEpoch
+	blockEpochs chan<- interface{}
 
 	incubationRequests chan struct{}
 
@@ -303,12 +304,6 @@ func withMarkClosed(markClosed func(*channeldb.ChannelCloseSummary,
 func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	opts ...testChanArbOption) (*chanArbTestCtx, error) {
 
-	blockEpochs := make(chan *chainntnfs.BlockEpoch)
-	blockEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: blockEpochs,
-		Cancel: func() {},
-	}
-
 	chanPoint := wire.OutPoint{}
 	shortChanID := lnwire.ShortChannelID{}
 	chanEvents := &ChainEventSubscription{
@@ -365,7 +360,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	arbCfg := &ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
 		ShortChanID: shortChanID,
-		BlockEpochs: blockEpoch,
+		Blocks:      queue.NewConcurrentQueue(blockQueueBuffer),
 		MarkChannelResolved: func() error {
 			resolvedChan <- struct{}{}
 			return nil
@@ -432,7 +427,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 		cleanUp:            cleanUp,
 		resolvedChan:       resolvedChan,
 		resolutions:        resolutionChan,
-		blockEpochs:        blockEpochs,
+		blockEpochs:        arbCfg.Blocks.ChanIn(),
 		log:                log,
 		incubationRequests: incubateChan,
 		sweeper:            mockSweeper,

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 // ErrChainArbExiting signals that the chain arbitrator is shutting down.
@@ -312,19 +313,8 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	log.Tracef("Creating ChannelArbitrator for ChannelPoint(%v)",
 		channel.FundingOutpoint)
 
-	// We'll start by registering for a block epoch notifications so this
-	// channel can keep track of the current state of the main chain.
-	//
 	// TODO(roasbeef): fetch best height (or pass in) so can ensure block
 	// epoch delivers all the notifications to
-	//
-	// TODO(roasbeef): instead 1 block epoch that multi-plexes to the rest?
-	//  * reduces the number of goroutines
-	blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return nil, err
-	}
-
 	chanPoint := channel.FundingOutpoint
 
 	// Next we'll create the matching configuration struct that contains
@@ -333,7 +323,7 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		Channel:     c.getArbChannel(channel),
 		ShortChanID: channel.ShortChanID(),
-		BlockEpochs: blockEpoch,
+		Blocks:      queue.NewConcurrentQueue(blockQueueBuffer),
 
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
@@ -369,7 +359,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		c.chanSource.Backend, arbCfg, c.cfg.ChainHash, chanPoint,
 	)
 	if err != nil {
-		blockEpoch.Cancel()
 		return nil, err
 	}
 
@@ -385,7 +374,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 	pendingRemoteCommitment, err := channel.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {
-		blockEpoch.Cancel()
 		return nil, err
 	}
 	if pendingRemoteCommitment != nil {
@@ -486,6 +474,13 @@ func (c *ChainArbitrator) Start() error {
 			len(openChannels))
 	}
 
+	// Create a single subscription to block notifications which we will
+	// fan out to all of our channel arbitrators.
+	blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return err
+	}
+
 	// For each open channel, we'll configure then launch a corresponding
 	// ChannelArbitrator.
 	for _, channel := range openChannels {
@@ -545,18 +540,15 @@ func (c *ChainArbitrator) Start() error {
 	// the chain any longer, only resolve the contracts on the confirmed
 	// commitment.
 	for _, closeChanInfo := range closingChannels {
-		blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-		if err != nil {
-			return err
-		}
-
 		// We can leave off the CloseContract and ForceCloseChan
 		// methods as the channel is already closed at this point.
 		chanPoint := closeChanInfo.ChanPoint
 		arbCfg := ChannelArbitratorConfig{
-			ChanPoint:             chanPoint,
-			ShortChanID:           closeChanInfo.ShortChanID,
-			BlockEpochs:           blockEpoch,
+			ChanPoint:   chanPoint,
+			ShortChanID: closeChanInfo.ShortChanID,
+			Blocks: queue.NewConcurrentQueue(
+				blockQueueBuffer,
+			),
 			ChainArbitratorConfig: c.cfg,
 			ChainEvents:           &ChainEventSubscription{},
 			IsPendingClose:        true,
@@ -636,9 +628,71 @@ func (c *ChainArbitrator) Start() error {
 		}
 	}
 
+	// Once we have started our channel arbitrators, they are ready to
+	// receive block notifications. We start this goroutine after we have
+	// successfully started all of our arbitrators so that we do not need
+	// a failed channel arbitrator start to signal that it is shutting down.
+	c.wg.Add(1)
+	go func() {
+		if err := c.dispatchBlocks(blockEpoch); err != nil {
+			log.Warnf("dispatch blocks: %v", err)
+		}
+		c.wg.Done()
+	}()
+
 	// TODO(roasbeef): eventually move all breach watching here
 
 	return nil
+}
+
+// dispatchBlocks consumes a single source of block epoch notifications and
+// dispatches them to our current set of channel arbitrators.
+func (c *ChainArbitrator) dispatchBlocks(nt *chainntnfs.BlockEpochEvent) error {
+	// Cancel our block notifications on exit.
+	defer nt.Cancel()
+
+	for {
+		select {
+		// Consume block notifications from our epoch channel. If the
+		// channel is closed, our epoch notifications have been
+		// cancelled so we return.
+		case blockEpoch, ok := <-nt.Epochs:
+			if !ok {
+				return fmt.Errorf("block notifications " +
+					"cancelled")
+			}
+
+			c.Lock()
+			log.Debugf("dispatching block: %v to %v arbitrators",
+				blockEpoch.Height, len(c.activeChannels))
+
+			for _, chanArb := range c.activeChannels {
+				select {
+				case chanArb.cfg.Blocks.ChanIn() <- blockEpoch:
+					log.Debugf("block: %v "+
+						"delivered to: %v",
+						chanArb.cfg.ChanPoint)
+
+				// If the arbitrator is shutting down, don't
+				// try to send a block to it.
+				case <-chanArb.quit:
+
+				// If we are shutting down, break early because
+				// we don't need to dispatch the block epoch
+				// to the remaining chanArbs. We *do not*
+				// return here, because we need to release our
+				// lock.
+				case <-c.quit:
+					break
+				}
+			}
+			c.Unlock()
+
+		// If the chain arbitrator is shutting down, exit without error.
+		case <-c.quit:
+			return nil
+		}
+	}
 }
 
 // publishClosingTxs will load any stored cooperative or unilater closing
