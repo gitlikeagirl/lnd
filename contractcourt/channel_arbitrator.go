@@ -23,6 +23,10 @@ import (
 	"github.com/lightningnetwork/lnd/sweep"
 )
 
+// blockChannelBuffer is the size of the buffer we create channel arbitrator
+// block channels with.
+const blockChannelBuffer = 5
+
 var (
 	// errAlreadyForceClosed is an error returned when we attempt to force
 	// close a channel that's already in the process of doing so.

@@ -322,7 +322,9 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		Channel:     c.getArbChannel(channel),
 		ShortChanID: channel.ShortChanID(),
-		Blocks:      make(chan *chainntnfs.BlockEpoch, 1),
+		Blocks: make(
+			chan *chainntnfs.BlockEpoch, blockChannelBuffer,
+		),
 
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
@@ -543,9 +545,11 @@ func (c *ChainArbitrator) Start() error {
 		// methods as the channel is already closed at this point.
 		chanPoint := closeChanInfo.ChanPoint
 		arbCfg := ChannelArbitratorConfig{
-			ChanPoint:             chanPoint,
-			ShortChanID:           closeChanInfo.ShortChanID,
-			Blocks:                make(chan *chainntnfs.BlockEpoch, 1),
+			ChanPoint:   chanPoint,
+			ShortChanID: closeChanInfo.ShortChanID,
+			Blocks: make(
+				chan *chainntnfs.BlockEpoch, blockChannelBuffer,
+			),
 			ChainArbitratorConfig: c.cfg,
 			ChainEvents:           &ChainEventSubscription{},
 			IsPendingClose:        true,
