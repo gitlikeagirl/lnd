@@ -102,11 +102,10 @@ type ChannelArbitratorConfig struct {
 	// to the switch during contract resolution.
 	ShortChanID lnwire.ShortChannelID
 
-	// BlockEpochs is an active block epoch event stream backed by an
-	// active ChainNotifier instance. We will use new block notifications
-	// sent over this channel to decide when we should go on chain to
-	// reclaim/redeem the funds in an HTLC sent to/from us.
-	BlockEpochs *chainntnfs.BlockEpochEvent
+	// Blocks is a channel that receives new blocks. This channel should be
+	// buffered by 1 so that the arbitrator can consume the block
+	// immediately.
+	Blocks chan *chainntnfs.BlockEpoch
 
 	// ChainEvents is an active subscription to the chain watcher for this
 	// channel to be notified of any on-chain activity related to this
@@ -391,13 +390,11 @@ func (c *ChannelArbitrator) Start() error {
 	// machine can act accordingly.
 	c.state, err = c.log.CurrentState()
 	if err != nil {
-		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
-		c.cfg.BlockEpochs.Cancel()
 		return err
 	}
 
@@ -473,7 +470,6 @@ func (c *ChannelArbitrator) Start() error {
 				c.cfg.ChanPoint)
 
 		default:
-			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
 	}
@@ -495,7 +491,6 @@ func (c *ChannelArbitrator) Start() error {
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
 		if err := c.relaunchResolvers(commitSet, triggerHeight); err != nil {
-			c.cfg.BlockEpochs.Cancel()
 			return err
 		}
 	}
@@ -2101,7 +2096,6 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 
 	// TODO(roasbeef): tell top chain arb we're done
 	defer func() {
-		c.cfg.BlockEpochs.Cancel()
 		c.wg.Done()
 	}()
 
@@ -2111,7 +2105,7 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// A new block has arrived, we'll examine all the active HTLC's
 		// to see if any of them have expired, and also update our
 		// track of the best current height.
-		case blockEpoch, ok := <-c.cfg.BlockEpochs.Epochs:
+		case blockEpoch, ok := <-c.cfg.Blocks:
 			if !ok {
 				return
 			}

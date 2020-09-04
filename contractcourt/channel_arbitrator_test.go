@@ -304,10 +304,6 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	opts ...testChanArbOption) (*chanArbTestCtx, error) {
 
 	blockEpochs := make(chan *chainntnfs.BlockEpoch)
-	blockEpoch := &chainntnfs.BlockEpochEvent{
-		Epochs: blockEpochs,
-		Cancel: func() {},
-	}
 
 	chanPoint := wire.OutPoint{}
 	shortChanID := lnwire.ShortChannelID{}
@@ -365,7 +361,7 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	arbCfg := &ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
 		ShortChanID: shortChanID,
-		BlockEpochs: blockEpoch,
+		Blocks:      blockEpochs,
 		MarkChannelResolved: func() error {
 			resolvedChan <- struct{}{}
 			return nil
