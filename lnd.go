@@ -195,7 +195,7 @@ type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
-func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
+func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan chan struct{}) error {
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")
 		err := cfg.LogWriter.Close()
@@ -381,7 +381,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 	if !cfg.NoSeedBackup {
 		params, shutdown, err := waitForWalletPassword(
 			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
-			restProxyDest, restListen, walletUnlockerListeners,
+			restProxyDest, restListen, walletUnlockerListeners, shutdownChan,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up wallet password "+
@@ -1130,7 +1130,7 @@ type WalletUnlockParams struct {
 func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 	serverOpts []grpc.ServerOption, restDialOpts []grpc.DialOption,
 	restProxyDest string, restListen func(net.Addr) (net.Listener, error),
-	getListeners rpcListeners) (*WalletUnlockParams, func(), error) {
+	getListeners rpcListeners, shutdownChan chan struct{}) (*WalletUnlockParams, func(), error) {
 
 	chainConfig := cfg.Bitcoin
 	if cfg.registeredChains.PrimaryChain() == chainreg.LitecoinChain {
@@ -1330,7 +1330,7 @@ func waitForWalletPassword(cfg *Config, restEndpoints []net.Addr,
 			MacResponseChan: pwService.MacResponseChan,
 		}, shutdown, nil
 
-	case <-signal.ShutdownChannel():
+	case <-shutdownChan:
 		return nil, shutdown, fmt.Errorf("shutting down")
 	}
 }

@@ -54,7 +54,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	}
 
 	// Hook interceptor for os signals.
-	if err := signal.Intercept(); err != nil {
+	if _, err := signal.Intercept(); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}

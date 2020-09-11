@@ -14,9 +14,6 @@ import (
 )
 
 var (
-	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
-	interruptChannel chan os.Signal
-
 	// shutdownRequestChannel is used to request the daemon to shutdown
 	// gracefully, similar to when receiving SIGINT.
 	shutdownRequestChannel chan struct{}
@@ -27,22 +24,30 @@ var (
 
 	// quit is closed when instructing the main interrupt handler to exit.
 	quit chan struct{}
+)
+
+type Channels struct {
+	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
+	InterruptChannel chan os.Signal
 
 	// shutdownChannel is closed once the main interrupt handler exits.
-	shutdownChannel chan struct{}
-)
+	ShutdownChannel chan struct{}
+}
 
 // Intercept starts the interception of interrupt signals. Note that this
 // function can only be called once.
-func Intercept() error {
+func Intercept() (Channels, error) {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
-		return errors.New("intercept already started")
+		return Channels{}, errors.New("intercept already started")
 	}
 
-	interruptChannel = make(chan os.Signal, 1)
+	channels := Channels{
+		InterruptChannel: make(chan os.Signal, 1),
+		ShutdownChannel: make(chan struct{}),
+	}
+
 	shutdownRequestChannel = make(chan struct{})
 	quit = make(chan struct{})
-	shutdownChannel = make(chan struct{})
 
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
@@ -50,10 +55,10 @@ func Intercept() error {
 		syscall.SIGTERM,
 		syscall.SIGQUIT,
 	}
-	signal.Notify(interruptChannel, signalsToCatch...)
-	go mainInterruptHandler()
+	signal.Notify(channels.InterruptChannel, signalsToCatch...)
+	go mainInterruptHandler(channels)
 
-	return nil
+	return channels, nil
 }
 
 // mainInterruptHandler listens for SIGINT (Ctrl+C) signals on the
@@ -61,7 +66,7 @@ func Intercept() error {
 // invokes the registered interruptCallbacks accordingly. It also listens for
 // callback registration.
 // It must be run as a goroutine.
-func mainInterruptHandler() {
+func mainInterruptHandler(channels Channels) {
 	defer atomic.StoreInt32(&started, 0)
 	// isShutdown is a flag which is used to indicate whether or not
 	// the shutdown signal has already been received and hence any future
@@ -87,7 +92,7 @@ func mainInterruptHandler() {
 
 	for {
 		select {
-		case signal := <-interruptChannel:
+		case signal := <-channels.InterruptChannel:
 			log.Infof("Received %v", signal)
 			shutdown()
 
@@ -97,8 +102,8 @@ func mainInterruptHandler() {
 
 		case <-quit:
 			log.Infof("Gracefully shutting down.")
-			close(shutdownChannel)
-			signal.Stop(interruptChannel)
+			close(channels.ShutdownChannel)
+			signal.Stop(channels.InterruptChannel)
 			return
 		}
 	}
@@ -134,10 +139,4 @@ func RequestShutdown() {
 	case shutdownRequestChannel <- struct{}{}:
 	case <-quit:
 	}
-}
-
-// ShutdownChannel returns the channel that will be closed once the main
-// interrupt handler has exited.
-func ShutdownChannel() <-chan struct{} {
-	return shutdownChannel
 }

@@ -424,7 +424,8 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 		return fmt.Errorf("opening stream to server failed: %v", err)
 	}
 
-	if err := signal.Intercept(); err != nil {
+	signal, err := signal.Intercept()
+	if err != nil {
 		return err
 	}
 
@@ -459,7 +460,7 @@ func openChannelPsbt(ctx *cli.Context, client lnrpc.LightningClient,
 	// the server.
 	go func() {
 		select {
-		case <-signal.ShutdownChannel():
+		case <-signal.ShutdownChannel:
 			fmt.Printf("\nInterrupt signal received.\n")
 			close(quit)
 
