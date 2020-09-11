@@ -62,6 +62,7 @@ func Intercept() error {
 // callback registration.
 // It must be run as a goroutine.
 func mainInterruptHandler() {
+	defer atomic.StoreInt32(&started, 0)
 	// isShutdown is a flag which is used to indicate whether or not
 	// the shutdown signal has already been received and hence any future
 	// attempts to add a new interrupt handler should invoke them
@@ -98,7 +99,6 @@ func mainInterruptHandler() {
 			log.Infof("Gracefully shutting down.")
 			close(shutdownChannel)
 			signal.Stop(interruptChannel)
-			atomic.StoreInt32(&started, 0)
 			return
 		}
 	}
