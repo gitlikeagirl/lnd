@@ -78,7 +78,7 @@ ifneq ($(workers),)
 LINT_WORKERS = --concurrency=$(workers)
 endif
 
-LINT = $(LINT_BIN) run -v $(LINT_WORKERS)
+LINT = GOGC=20 $(LINT_BIN) run -v $(LINT_WORKERS)
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
