@@ -129,7 +129,7 @@ func (c *channelAcceptorCtx) assertFinished(expected error) {
 // queryAndAssert takes a map of channel ids which we want to call Accept for
 // to the outcome we expect from the acceptor, dispatches each request in a
 // goroutine and then asserts that we get the outcome we expect.
-func (c *channelAcceptorCtx) queryAndAssert(queries map[[32]byte]bool) {
+func (c *channelAcceptorCtx) queryAndAssert(queries map[[32]byte]*ChannelAcceptResponse) {
 	var (
 		node      = randKey(c.t)
 		responses = make(chan struct{})
@@ -169,12 +169,14 @@ func TestMultipleAcceptClients(t *testing.T) {
 		chan2 = [32]byte{2}
 		chan3 = [32]byte{3}
 
+		customError = "go away"
+
 		// Queries is a map of the channel IDs we will query Accept
 		// with, and the set of outcomes we expect.
-		queries = map[[32]byte]bool{
-			chan1: true,
-			chan2: false,
-			chan3: false,
+		queries = map[[32]byte]*ChannelAcceptResponse{
+			chan1: NewChannelAcceptResponse(true, ""),
+			chan2: NewChannelAcceptResponse(false, errChannelRejected.Error()),
+			chan3: NewChannelAcceptResponse(false, customError),
 		}
 
 		// Responses is a mocked set of responses from the remote
@@ -191,6 +193,7 @@ func TestMultipleAcceptClients(t *testing.T) {
 			chan3: {
 				PendingChanId: chan3[:],
 				Accept:        false,
+				Error:         customError,
 			},
 		}
 	)
@@ -204,5 +207,41 @@ func TestMultipleAcceptClients(t *testing.T) {
 	testCtx.queryAndAssert(queries)
 
 	// Shutdown our acceptor.
+	testCtx.stop()
+}
+
+// TestInvalidResponse tests the case where our remote channel acceptor sends us
+// an invalid response, so the channel acceptor stream terminates.
+func TestInvalidResponse(t *testing.T) {
+	var (
+		chan1 = [32]byte{1}
+
+		// We make a single query, and expect it to fail with our
+		// generic error because our response is invalid.
+		queries = map[[32]byte]*ChannelAcceptResponse{
+			chan1: NewChannelAcceptResponse(
+				false, errChannelRejected.Error(),
+			),
+		}
+
+		// Create a single response which is invalid because it accepts
+		// the channel but also contains an error message.
+		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
+			chan1: {
+				PendingChanId: chan1[:],
+				Accept:        true,
+				Error:         "has an error as well",
+			},
+		}
+	)
+
+	// Create and start our channel acceptor.
+	testCtx := newChanAcceptorCtx(t, len(queries), responses)
+	testCtx.start()
+
+	testCtx.queryAndAssert(queries)
+
+	// We do not expect our channel acceptor to exit because of one invalid
+	// response, so we shutdown and assert here.
 	testCtx.stop()
 }
