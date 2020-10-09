@@ -397,11 +397,16 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 			pushAmt lnwire.MilliSatoshi) uint16 {
 			return 3
 		},
-		RequiredRemoteDelay: func(amt btcutil.Amount) uint16 {
+		RequiredRemoteDelay: func(_ uint16,
+			amt btcutil.Amount) uint16 {
 			return 4
 		},
-		RequiredRemoteChanReserve: func(chanAmt,
+		RequiredRemoteChanReserve: func(proposed, chanAmt,
 			dustLimit btcutil.Amount) btcutil.Amount {
+
+			if proposed > dustLimit {
+				return proposed
+			}
 
 			reserve := chanAmt / 100
 			if reserve < dustLimit {
@@ -410,11 +415,24 @@ func createTestFundingManager(t *testing.T, privKey *btcec.PrivateKey,
 
 			return reserve
 		},
-		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+		RequiredRemoteMaxValue: func(proposed lnwire.MilliSatoshi,
+			chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+
 			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+
+			if proposed > reserve {
+				return proposed
+			}
+
 			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
 		},
-		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteMaxHTLCs: func(proposed uint16,
+			chanAmt btcutil.Amount) uint16 {
+
+			if proposed > 0 {
+				return proposed
+			}
+
 			return uint16(input.MaxHTLCNumber / 2)
 		},
 		WatchNewChannel: func(*channeldb.OpenChannel, *btcec.PublicKey) error {
@@ -1034,7 +1052,7 @@ func assertChannelAnnouncements(t *testing.T, alice, bob *testNode,
 				}
 
 				maxHtlc := alice.fundingMgr.cfg.RequiredRemoteMaxValue(
-					capacity,
+					0, capacity,
 				)
 				// We might expect a custom MaxHltc value.
 				if len(customMaxHtlc) > 0 {

@@ -6363,7 +6363,13 @@ func (r *rpcServer) ChannelAcceptor(stream lnrpc.Lightning_ChannelAcceptorServer
 	// Create a new RPCAcceptor which will send requests into the
 	// newRequests channel when it receives them.
 	rpcAcceptor := chanacceptor.NewRPCAcceptor(
-		stream.Recv, stream.Send, r.cfg.AcceptorTimeout, r.quit,
+		stream.Recv, stream.Send, r.cfg.AcceptorTimeout,
+		func(address string) (lnwire.DeliveryAddress, error) {
+			return parseUpfrontShutdownAddress(
+				address, r.cfg.ActiveNetParams.Params,
+			)
+		},
+		r.quit,
 	)
 
 	// Add the RPCAcceptor to the ChainedAcceptor and defer its removal.

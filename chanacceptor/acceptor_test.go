@@ -11,7 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-var timeout = time.Second
+var (
+	timeout  = time.Second
+	testAddr = lnwire.DeliveryAddress{1}
+)
 
 func randKey(t *testing.T) *btcec.PublicKey {
 	t.Helper()
@@ -62,6 +65,13 @@ func newChanAcceptorCtx(t *testing.T, acceptCallCount int,
 
 	testCtx.acceptor = NewRPCAcceptor(
 		testCtx.receiveResponse, testCtx.sendRequest, timeout*5,
+		func(addr string) (lnwire.DeliveryAddress, error) {
+			if addr == string(testAddr) {
+				return testAddr, nil
+			}
+
+			return nil, nil
+		},
 		testCtx.quit,
 	)
 
@@ -172,19 +182,34 @@ func TestMultipleAcceptClients(t *testing.T) {
 		customError = "go away"
 
 		// Queries is a map of the channel IDs we will query Accept
-		// with, and the set of outcomes we expect.
+		// with, and the set of outcomes we expect. We set all non-nil
+		// values on one query to test that everything is set correctly,
+		// but otherwise don't bother for completeness.
 		queries = map[[32]byte]*ChannelAcceptResponse{
-			chan1: NewChannelAcceptResponse(true, ""),
-			chan2: NewChannelAcceptResponse(false, errChannelRejected.Error()),
-			chan3: NewChannelAcceptResponse(false, customError),
+			chan1: NewChannelAcceptResponse(
+				true, "", testAddr, 1, 2, 3, 4, 5,
+			),
+			chan2: NewChannelAcceptResponse(
+				false, errChannelRejected.Error(), nil, 0, 0,
+				0, 0, 0,
+			),
+			chan3: NewChannelAcceptResponse(
+				false, customError, nil, 0, 0, 0, 0, 0,
+			),
 		}
 
 		// Responses is a mocked set of responses from the remote
 		// channel acceptor.
 		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
 			chan1: {
-				PendingChanId: chan1[:],
-				Accept:        true,
+				PendingChanId:   chan1[:],
+				UpfrontShutdown: string(testAddr),
+				Accept:          true,
+				CsvDelay:        1,
+				MaxHtlcCount:    2,
+				ReserveSat:      3,
+				InFlightMaxMsat: 4,
+				MinHtlcIn:       5,
 			},
 			chan2: {
 				PendingChanId: chan2[:],
@@ -220,7 +245,8 @@ func TestInvalidResponse(t *testing.T) {
 		// generic error because our response is invalid.
 		queries = map[[32]byte]*ChannelAcceptResponse{
 			chan1: NewChannelAcceptResponse(
-				false, errChannelRejected.Error(),
+				false, errChannelRejected.Error(), nil, 0, 0,
+				0, 0, 0,
 			),
 		}
 

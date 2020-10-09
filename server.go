@@ -1080,7 +1080,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			}
 			return uint16(conf)
 		},
-		RequiredRemoteDelay: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteDelay: func(proposed uint16,
+			chanAmt btcutil.Amount) uint16 {
+
 			// We scale the remote CSV delay (the time the
 			// remote have to claim funds in case of a unilateral
 			// close) linearly from minRemoteDelay blocks
@@ -1088,9 +1090,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			// for channels of size MaxFundingAmount.
 			// TODO(halseth): Litecoin parameter for LTC.
 
+			// If a specific delay has been proposed for this
+			// channel, we use it.
+			if proposed > 0 {
+				return proposed
+			}
+
 			// In case the user has explicitly specified
-			// a default value for the remote delay, we
-			// use it.
+			// a default value for the remote delay across all
+			// channels, we use it.
 			defaultDelay := uint16(chainCfg.DefaultRemoteDelay)
 			if defaultDelay > 0 {
 				return defaultDelay
@@ -1137,8 +1145,15 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			cid := lnwire.NewChanIDFromOutPoint(&chanPoint)
 			return s.htlcSwitch.UpdateShortChanID(cid)
 		},
-		RequiredRemoteChanReserve: func(chanAmt,
+		RequiredRemoteChanReserve: func(proposed, chanAmt,
 			dustLimit btcutil.Amount) btcutil.Amount {
+
+			// If the reserve proposed is greater than our dust
+			// limit (which we assume to be non-zero), we use this
+			// value.
+			if proposed > dustLimit {
+				return proposed
+			}
 
 			// By default, we'll require the remote peer to maintain
 			// at least 1% of the total channel capacity at all
@@ -1152,14 +1167,31 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 
 			return reserve
 		},
-		RequiredRemoteMaxValue: func(chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+		RequiredRemoteMaxValue: func(proposed lnwire.MilliSatoshi,
+			chanAmt btcutil.Amount) lnwire.MilliSatoshi {
+
+			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
+
+			// Provided that the value proposed is greater than
+			// our reserve, we use it. If the proposed value is not
+			// set (ie is 0), it will not be greater than our
+			// reserve.
+			if proposed > reserve {
+				return proposed
+			}
+
 			// By default, we'll allow the remote peer to fully
 			// utilize the full bandwidth of the channel, minus our
 			// required reserve.
-			reserve := lnwire.NewMSatFromSatoshis(chanAmt / 100)
 			return lnwire.NewMSatFromSatoshis(chanAmt) - reserve
 		},
-		RequiredRemoteMaxHTLCs: func(chanAmt btcutil.Amount) uint16 {
+		RequiredRemoteMaxHTLCs: func(proposed uint16,
+			chanAmt btcutil.Amount) uint16 {
+
+			if proposed > 0 {
+				return proposed
+			}
+
 			if cfg.DefaultRemoteMaxHtlcs > 0 {
 				return cfg.DefaultRemoteMaxHtlcs
 			}

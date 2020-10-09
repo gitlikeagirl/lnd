@@ -280,24 +280,30 @@ type fundingConfig struct {
 	// proposed channel to the CSV delay that we'll require for the remote
 	// party. Naturally a larger channel should require a higher CSV delay
 	// in order to give us more time to claim funds in the case of a
-	// contract breach.
-	RequiredRemoteDelay func(btcutil.Amount) uint16
+	// contract breach. It takes a proposed value (from the user), which
+	// will be used if it is valid.
+	RequiredRemoteDelay func(uint16, btcutil.Amount) uint16
 
 	// RequiredRemoteChanReserve is a function closure that, given the
 	// channel capacity and dust limit, will return an appropriate amount
 	// for the remote peer's required channel reserve that is to be adhered
-	// to at all times.
-	RequiredRemoteChanReserve func(capacity, dustLimit btcutil.Amount) btcutil.Amount
+	// to at all times. It takes a proposed value (from the user) which
+	// will be used if it is valid.
+	RequiredRemoteChanReserve func(proposed,
+		capacity, dustLimit btcutil.Amount) btcutil.Amount
 
 	// RequiredRemoteMaxValue is a function closure that, given the channel
 	// capacity, returns the amount of MilliSatoshis that our remote peer
-	// can have in total outstanding HTLCs with us.
-	RequiredRemoteMaxValue func(btcutil.Amount) lnwire.MilliSatoshi
+	// can have in total outstanding HTLCs with us. It takes a proposed
+	// value (from the user) which will be used if it is valid.
+	RequiredRemoteMaxValue func(proposed lnwire.MilliSatoshi,
+		capacity btcutil.Amount) lnwire.MilliSatoshi
 
 	// RequiredRemoteMaxHTLCs is a function closure that, given the channel
 	// capacity, returns the number of maximum HTLCs the remote peer can
-	// offer us.
-	RequiredRemoteMaxHTLCs func(btcutil.Amount) uint16
+	// offer us. It takes a proposed value (from the user) which will be
+	// used if it is valid.
+	RequiredRemoteMaxHTLCs func(uint16, btcutil.Amount) uint16
 
 	// WatchNewChannel is to be called once a new channel enters the final
 	// funding stage: waiting for on-chain confirmation. This method sends
@@ -1355,10 +1361,10 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 
 	// Check whether the peer supports upfront shutdown, and get a new wallet
 	// address if our node is configured to set shutdown addresses by default.
-	// A nil address is set in place of user input, because this channel open
-	// was not initiated by the user.
+	// We use the upfront shutdown script provided by our channel acceptor
+	// (if any) in lieu of user input.
 	shutdown, err := getUpfrontShutdownScript(
-		f.cfg.EnableUpfrontShutdown, peer, nil,
+		f.cfg.EnableUpfrontShutdown, peer, acceptorResp.UpfrontShutdown,
 		func() (lnwire.DeliveryAddress, error) {
 			addr, err := f.cfg.Wallet.NewAddress(lnwallet.WitnessPubKey, false)
 			if err != nil {
@@ -1381,12 +1387,29 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		msg.PendingChannelID, amt, msg.PushAmount,
 		commitType, msg.UpfrontShutdownScript)
 
-	// Generate our required constraints for the remote party.
-	remoteCsvDelay := f.cfg.RequiredRemoteDelay(amt)
-	chanReserve := f.cfg.RequiredRemoteChanReserve(amt, msg.DustLimit)
-	remoteMaxValue := f.cfg.RequiredRemoteMaxValue(amt)
-	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(amt)
+	// Generate our required constraints for the remote party, passing in
+	// the values provided by the channel acceptor response which will be
+	// used if they were set.
+	remoteCsvDelay := f.cfg.RequiredRemoteDelay(acceptorResp.CSVDelay, amt)
+
+	chanReserve := f.cfg.RequiredRemoteChanReserve(
+		acceptorResp.Reserve, amt, msg.DustLimit,
+	)
+
+	remoteMaxValue := f.cfg.RequiredRemoteMaxValue(
+		acceptorResp.InFlightTotal, amt,
+	)
+
+	maxHtlcs := f.cfg.RequiredRemoteMaxHTLCs(
+		acceptorResp.HtlcLimit, amt,
+	)
+
+	// Default to our default minimum hltc value, replacing it with the
+	// channel acceptor's value if it is set.
 	minHtlc := f.cfg.DefaultMinHtlcIn
+	if acceptorResp.MinHtlcIn != 0 {
+		minHtlc = acceptorResp.MinHtlcIn
+	}
 
 	// Once the reservation has been created successfully, we add it to
 	// this peer's map of pending reservations to track this particular
@@ -1539,7 +1562,9 @@ func (f *fundingManager) handleFundingAccept(peer lnpeer.Peer,
 	// As they've accepted our channel constraints, we'll regenerate them
 	// here so we can properly commit their accepted constraints to the
 	// reservation.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(resCtx.chanAmt, msg.DustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(
+		msg.ChannelReserve, resCtx.chanAmt, msg.DustLimit,
+	)
 
 	// The remote node has responded with their portion of the channel
 	// contribution. At this point, we can process their contribution which
@@ -3184,23 +3209,15 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// If the remote CSV delay was not set in the open channel request,
 	// we'll use the RequiredRemoteDelay closure to compute the delay we
 	// require given the total amount of funds within the channel.
-	if remoteCsvDelay == 0 {
-		remoteCsvDelay = f.cfg.RequiredRemoteDelay(capacity)
-	}
+	remoteCsvDelay = f.cfg.RequiredRemoteDelay(remoteCsvDelay, capacity)
 
 	// If no minimum HTLC value was specified, use the default one.
 	if minHtlcIn == 0 {
 		minHtlcIn = f.cfg.DefaultMinHtlcIn
 	}
 
-	// If no max value was specified, use the default one.
-	if maxValue == 0 {
-		maxValue = f.cfg.RequiredRemoteMaxValue(capacity)
-	}
-
-	if maxHtlcs == 0 {
-		maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(capacity)
-	}
+	maxValue = f.cfg.RequiredRemoteMaxValue(maxValue, capacity)
+	maxHtlcs = f.cfg.RequiredRemoteMaxHTLCs(maxHtlcs, capacity)
 
 	// If a pending channel map for this peer isn't already created, then
 	// we create one, ultimately allowing us to track this pending
@@ -3235,7 +3252,9 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 	// Finally, we'll use the current value of the channels and our default
 	// policy to determine of required commitment constraints for the
 	// remote party.
-	chanReserve := f.cfg.RequiredRemoteChanReserve(capacity, ourDustLimit)
+	chanReserve := f.cfg.RequiredRemoteChanReserve(
+		0, capacity, ourDustLimit,
+	)
 
 	fndgLog.Infof("Starting funding workflow with %v for pending_id(%x), "+
 		"committype=%v", msg.peer.Address(), chanID, commitType)

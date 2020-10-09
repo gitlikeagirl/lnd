@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -33,6 +34,28 @@ type ChannelAcceptResponse struct {
 	// ChanAcceptError the error returned by the channel acceptor. If the
 	// channel was accepted, this value will be nil.
 	ChanAcceptError
+
+	// UpfrontShutdown is the address that we will set as our upfront
+	// shutdown address if the peer supports the feature bit.
+	UpfrontShutdown lnwire.DeliveryAddress
+
+	// CSVDelay is the csv delay we require for the remote peer.
+	CSVDelay uint16
+
+	// Reserve is the amount that require the remote peer hold in reserve
+	// on the channel.
+	Reserve btcutil.Amount
+
+	// InFlightTotal is the maximum amount that we allow the remote peer to
+	// hold in outstanding htlcs.
+	InFlightTotal lnwire.MilliSatoshi
+
+	// HtlcLimit is the maximum number of htlcs that we allow the remote
+	// peer to offer us.
+	HtlcLimit uint16
+
+	// MinHtlcIn is the minimum incoming htlc value allowed on the channel.
+	MinHtlcIn lnwire.MilliSatoshi
 }
 
 // NewChannelAcceptResponse is a constructor for a channel accept response,
@@ -40,11 +63,24 @@ type ChannelAcceptResponse struct {
 // a rejection) so that the error will be whitelisted and delivered to the
 // initiating peer. Accepted channels simply return a response containing a nil
 // error.
-func NewChannelAcceptResponse(accept bool, errStr string) *ChannelAcceptResponse {
+func NewChannelAcceptResponse(accept bool, errStr string,
+	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit uint16,
+	reserve btcutil.Amount, inFlight,
+	minHtlcIn lnwire.MilliSatoshi) *ChannelAcceptResponse {
+
+	resp := &ChannelAcceptResponse{
+		UpfrontShutdown: upfrontShutdown,
+		CSVDelay:        csvDelay,
+		Reserve:         reserve,
+		InFlightTotal:   inFlight,
+		HtlcLimit:       htlcLimit,
+		MinHtlcIn:       minHtlcIn,
+	}
+
 	// If we want to accept the channel, we return a response with a nil
 	// error.
 	if accept {
-		return &ChannelAcceptResponse{}
+		return resp
 	}
 
 	// Use a generic error when no custom error is provided, overwriting it
@@ -54,11 +90,10 @@ func NewChannelAcceptResponse(accept bool, errStr string) *ChannelAcceptResponse
 		err = errors.New(errStr)
 	}
 
-	return &ChannelAcceptResponse{
-		ChanAcceptError: ChanAcceptError{
-			error: err,
-		},
+	resp.ChanAcceptError = ChanAcceptError{
+		error: err,
 	}
+	return resp
 }
 
 // RejectChannel returns a boolean that indicates whether we should reject the
