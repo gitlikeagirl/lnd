@@ -351,6 +351,7 @@ func main() {
 		trackPaymentCommand,
 		versionCommand,
 		profileSubCommand,
+		acceptorCommand,
 	}
 
 	// Add any extra commands determined by build flags.
