@@ -1,16 +1,17 @@
 package chanacceptor
 
 import (
-	"bytes"
-	"sync/atomic"
+	"fmt"
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/lnrpc"
-
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/assert"
 )
+
+var timeout = time.Second
 
 func randKey(t *testing.T) *btcec.PublicKey {
 	t.Helper()
@@ -23,134 +24,185 @@ func randKey(t *testing.T) *btcec.PublicKey {
 	return priv.PubKey()
 }
 
-// requestInfo encapsulates the information sent from the RPCAcceptor to the
-// receiver on the other end of the stream.
-type requestInfo struct {
-	chanReq      *ChannelAcceptRequest
-	responseChan chan lnrpc.ChannelAcceptResponse
+type channelAcceptorCtx struct {
+	t *testing.T
+
+	// extRequests is the channel that we send our channel accept requests
+	// into, this channel mocks sending of a request to the rpc acceptor.
+	// This channel should be buffered with the number of requests we want
+	// to send so that it does not block (like a rpc stream).
+	extRequests chan []byte
+
+	// responses is a map of pending channel IDs to the response which we
+	// wish to mock the remote channel acceptor sending.
+	responses map[[32]byte]*lnrpc.ChannelAcceptResponse
+
+	// acceptor is the channel acceptor we create for the test.
+	acceptor *RPCAcceptor
+
+	// errChan is a channel that the error the channel acceptor exits with
+	// is sent into.
+	errChan chan error
+
+	// quit is a channel that can be used to shutdown the channel acceptor
+	// and return errShuttingDown.
+	quit chan struct{}
 }
 
-var defaultAcceptTimeout = 5 * time.Second
+func newChanAcceptorCtx(t *testing.T, acceptCallCount int,
+	responses map[[32]byte]*lnrpc.ChannelAcceptResponse) *channelAcceptorCtx {
 
-func acceptAndIncrementCtr(rpc ChannelAcceptor, req *ChannelAcceptRequest,
-	ctr *uint32, success chan struct{}) {
-
-	result := rpc.Accept(req)
-	if !result {
-		return
+	testCtx := &channelAcceptorCtx{
+		t:           t,
+		extRequests: make(chan []byte, acceptCallCount),
+		responses:   responses,
+		errChan:     make(chan error),
+		quit:        make(chan struct{}),
 	}
 
-	val := atomic.AddUint32(ctr, 1)
-	if val == 3 {
-		success <- struct{}{}
-	}
-}
-
-// TestMultipleRPCClients tests that the RPCAcceptor is able to handle multiple
-// callers to its Accept method and respond to them correctly.
-func TestRPCMultipleAcceptClients(t *testing.T) {
-
-	var (
-		node = randKey(t)
-
-		firstOpenReq = &ChannelAcceptRequest{
-			Node: node,
-			OpenChanMsg: &lnwire.OpenChannel{
-				PendingChannelID: [32]byte{0},
-			},
-		}
-
-		secondOpenReq = &ChannelAcceptRequest{
-			Node: node,
-			OpenChanMsg: &lnwire.OpenChannel{
-				PendingChannelID: [32]byte{1},
-			},
-		}
-
-		thirdOpenReq = &ChannelAcceptRequest{
-			Node: node,
-			OpenChanMsg: &lnwire.OpenChannel{
-				PendingChannelID: [32]byte{2},
-			},
-		}
-
-		counter uint32
+	testCtx.acceptor = NewRPCAcceptor(
+		testCtx.receiveResponse, testCtx.sendRequest, timeout*5,
+		testCtx.quit,
 	)
 
-	quit := make(chan struct{})
-	defer close(quit)
+	return testCtx
+}
 
-	// Create channels to handle requests and successes.
-	requests := make(chan *requestInfo)
-	successChan := make(chan struct{})
-	errChan := make(chan struct{}, 4)
+// sendRequest mocks sending a request to the channel acceptor.
+func (c *channelAcceptorCtx) sendRequest(request *lnrpc.ChannelAcceptRequest) error {
+	select {
+	case c.extRequests <- request.PendingChanId:
 
-	// demultiplexReq is a closure used to abstract the RPCAcceptor's request
-	// and response logic.
-	demultiplexReq := func(req *ChannelAcceptRequest) bool {
-		respChan := make(chan lnrpc.ChannelAcceptResponse, 1)
-
-		newRequest := &requestInfo{
-			chanReq:      req,
-			responseChan: respChan,
-		}
-
-		// Send the newRequest to the requests channel.
-		select {
-		case requests <- newRequest:
-		case <-quit:
-			return false
-		}
-
-		// Receive the response and verify that the PendingChanId matches
-		// the ID found in the ChannelAcceptRequest. If no response has been
-		// received in defaultAcceptTimeout, then return false.
-		select {
-		case resp := <-respChan:
-			pendingID := req.OpenChanMsg.PendingChannelID
-			if !bytes.Equal(pendingID[:], resp.PendingChanId) {
-				errChan <- struct{}{}
-				return false
-			}
-
-			return resp.Accept
-		case <-time.After(defaultAcceptTimeout):
-			errChan <- struct{}{}
-			return false
-		case <-quit:
-			return false
-		}
+	case <-time.After(timeout):
+		c.t.Fatalf("timeout sending request: %v", request.PendingChanId)
 	}
 
-	rpcAcceptor := NewRPCAcceptor(demultiplexReq)
+	return nil
+}
 
-	// Now we call the Accept method for each request.
+// receiveResponse mocks sending of a response from the channel acceptor.
+func (c *channelAcceptorCtx) receiveResponse() (*lnrpc.ChannelAcceptResponse,
+	error) {
+
+	select {
+	case id := <-c.extRequests:
+		scratch := [32]byte{}
+		copy(scratch[:], id)
+
+		resp, ok := c.responses[scratch]
+		assert.True(c.t, ok)
+
+		return resp, nil
+
+	case <-time.After(timeout):
+		c.t.Fatalf("timeout receiving request")
+		return nil, fmt.Errorf("timeout")
+	}
+}
+
+// start runs our channel acceptor in a goroutine which sends its exit error
+// into our test error channel.
+func (c *channelAcceptorCtx) start() {
 	go func() {
-		acceptAndIncrementCtr(rpcAcceptor, firstOpenReq, &counter, successChan)
+		c.errChan <- c.acceptor.Run()
 	}()
+}
 
-	go func() {
-		acceptAndIncrementCtr(rpcAcceptor, secondOpenReq, &counter, successChan)
-	}()
+// stop shuts down the test's channel acceptor and asserts that it exits with
+// our expected error.
+func (c *channelAcceptorCtx) stop() {
+	close(c.quit)
+	c.assertFinished(errShuttingDown)
+}
 
-	go func() {
-		acceptAndIncrementCtr(rpcAcceptor, thirdOpenReq, &counter, successChan)
-	}()
+// assertFinished asserts that the acceptor exits with the error provided.
+func (c *channelAcceptorCtx) assertFinished(expected error) {
+	select {
+	case actual := <-c.errChan:
+		assert.Equal(c.t, expected, actual)
 
-	for {
+	case <-time.After(timeout):
+		c.t.Fatal("timeout waiting for acceptor to exit")
+	}
+}
+
+// queryAndAssert takes a map of channel ids which we want to call Accept for
+// to the outcome we expect from the acceptor, dispatches each request in a
+// goroutine and then asserts that we get the outcome we expect.
+func (c *channelAcceptorCtx) queryAndAssert(queries map[[32]byte]bool) {
+	var (
+		node      = randKey(c.t)
+		responses = make(chan struct{})
+	)
+
+	for request, expected := range queries {
+		request := request
+		expected := expected
+
+		go func() {
+			resp := c.acceptor.Accept(&ChannelAcceptRequest{
+				Node: node,
+				OpenChanMsg: &lnwire.OpenChannel{
+					PendingChannelID: request,
+				},
+			})
+			assert.Equal(c.t, expected, resp)
+			responses <- struct{}{}
+		}()
+	}
+
+	// Wait for each of our requests to return a response before we exit.
+	for i := 0; i < len(queries); i++ {
 		select {
-		case newRequest := <-requests:
-			newResponse := lnrpc.ChannelAcceptResponse{
+		case <-responses:
+		case <-time.After(timeout):
+			c.t.Fatalf("did not receive response")
+		}
+	}
+}
+
+// TestMultipleAcceptClients tests that the RPC acceptor is capable of handling
+// multiple requests to its Accept function and responding to them correctly.
+func TestMultipleAcceptClients(t *testing.T) {
+	var (
+		chan1 = [32]byte{1}
+		chan2 = [32]byte{2}
+		chan3 = [32]byte{3}
+
+		// Queries is a map of the channel IDs we will query Accept
+		// with, and the set of outcomes we expect.
+		queries = map[[32]byte]bool{
+			chan1: true,
+			chan2: false,
+			chan3: false,
+		}
+
+		// Responses is a mocked set of responses from the remote
+		// channel acceptor.
+		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
+			chan1: {
+				PendingChanId: chan1[:],
 				Accept:        true,
-				PendingChanId: newRequest.chanReq.OpenChanMsg.PendingChannelID[:],
-			}
-
-			newRequest.responseChan <- newResponse
-		case <-errChan:
-			t.Fatalf("unable to accept ChannelAcceptRequest")
-		case <-successChan:
-			return
-		case <-quit:
+			},
+			chan2: {
+				PendingChanId: chan2[:],
+				Accept:        false,
+			},
+			chan3: {
+				PendingChanId: chan3[:],
+				Accept:        false,
+			},
 		}
-	}
+	)
+
+	// Create and start our channel acceptor.
+	testCtx := newChanAcceptorCtx(t, len(queries), responses)
+	testCtx.start()
+
+	// Dispatch three queries and assert that we get our expected response.
+	// for each.
+	testCtx.queryAndAssert(queries)
+
+	// Shutdown our acceptor.
+	testCtx.stop()
 }
