@@ -312,18 +312,8 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 	log.Tracef("Creating ChannelArbitrator for ChannelPoint(%v)",
 		channel.FundingOutpoint)
 
-	// We'll start by registering for a block epoch notifications so this
-	// channel can keep track of the current state of the main chain.
-	//
 	// TODO(roasbeef): fetch best height (or pass in) so can ensure block
 	// epoch delivers all the notifications to
-	//
-	// TODO(roasbeef): instead 1 block epoch that multi-plexes to the rest?
-	//  * reduces the number of goroutines
-	blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
-	if err != nil {
-		return nil, err
-	}
 
 	chanPoint := channel.FundingOutpoint
 
@@ -333,7 +323,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		ChanPoint:   chanPoint,
 		Channel:     c.getArbChannel(channel),
 		ShortChanID: channel.ShortChanID(),
-		BlockEpochs: blockEpoch,
 
 		MarkCommitmentBroadcasted: channel.MarkCommitmentBroadcasted,
 		MarkChannelClosed: func(summary *channeldb.ChannelCloseSummary,
@@ -369,7 +358,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		c.chanSource.Backend, arbCfg, c.cfg.ChainHash, chanPoint,
 	)
 	if err != nil {
-		blockEpoch.Cancel()
 		return nil, err
 	}
 
@@ -385,7 +373,6 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 
 	pendingRemoteCommitment, err := channel.RemoteCommitChainTip()
 	if err != nil && err != channeldb.ErrNoPendingCommit {
-		blockEpoch.Cancel()
 		return nil, err
 	}
 	if pendingRemoteCommitment != nil {
@@ -556,7 +543,6 @@ func (c *ChainArbitrator) Start() error {
 		arbCfg := ChannelArbitratorConfig{
 			ChanPoint:             chanPoint,
 			ShortChanID:           closeChanInfo.ShortChanID,
-			BlockEpochs:           blockEpoch,
 			ChainArbitratorConfig: c.cfg,
 			ChainEvents:           &ChainEventSubscription{},
 			IsPendingClose:        true,
@@ -627,6 +613,20 @@ func (c *ChainArbitrator) Start() error {
 		}
 	}
 
+	// Subscribe to a single stream of block epoch notifications that we
+	// will dispatch to all active arbitrators.
+	blockEpoch, err := c.cfg.Notifier.RegisterBlockEpochNtfn(nil)
+	if err != nil {
+		return err
+	}
+
+	// Start our goroutine which will dispatch blocks to each arbitrator.
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.dispatchBlocks(blockEpoch)
+	}()
+
 	// Finally, we'll launch all the goroutines for each arbitrator so they
 	// can carry out their duties.
 	for _, arbitrator := range c.activeChannels {
@@ -639,6 +639,85 @@ func (c *ChainArbitrator) Start() error {
 	// TODO(roasbeef): eventually move all breach watching here
 
 	return nil
+}
+
+// dispatchBlocks consumes a block epoch notification stream and dispatches
+// blocks to each of the chain arb's active channel arbitrators. This function
+// must be run in a goroutine.
+func (c *ChainArbitrator) dispatchBlocks(
+	blockEpoch *chainntnfs.BlockEpochEvent) {
+
+	// On exit, cancel our blocks subscription and close the blocks channel
+	// for each of our existing arbitrators, indicating that we will no
+	// longer be delivering blocks to them.
+	defer func() {
+		blockEpoch.Cancel()
+
+		c.Lock()
+		for _, channel := range c.activeChannels {
+			close(channel.blocks)
+		}
+		c.Unlock()
+	}()
+
+	// Consume block epochs until we receive the instruction to shutdown.
+	for {
+		select {
+		// Consume block epochs, exiting if our subscription is
+		// terminated.
+		case block, ok := <-blockEpoch.Epochs:
+			if !ok {
+				log.Trace("dispatchBlocks block epoch " +
+					"cancelled")
+
+				return
+			}
+
+			// To keep our locking simple, we track whether we broke
+			// our dispatch loop due to shutdown with this bool.
+			var shutdown bool
+
+			// Acquire our lock and dispatch this new block to each
+			// channel arbitrator, breaking early if we receive the
+			// instruction to shutdown.
+			c.Lock()
+		dispatch:
+			for _, arb := range c.activeChannels {
+				select {
+				// Deliver the block to the arbitrator.
+				case arb.blocks <- block.Height:
+
+				// If the arbitrator is shutting down,
+				// we can just skip this one.
+				case <-arb.quit:
+					log.Debugf("did not deliver "+
+						"block: %v to %v, "+
+						"shutting down",
+						block.Height,
+						arb.cfg.ChanPoint)
+
+				// If the chain arb is shutting down, we don't
+				// need to deliver any more blocks (everything
+				// will be shutting down). We set our shutdown
+				// bool so that we know to exit immediately
+				// rather than evaluate our select again.
+				case <-c.quit:
+					shutdown = true
+					break dispatch
+				}
+			}
+
+			c.Unlock()
+
+			if shutdown {
+				return
+			}
+
+		// Exit if the chain arbitrator is shutting down.
+		case <-c.quit:
+			return
+		}
+	}
 }
 
 // publishClosingTxs will load any stored cooperative or unilater closing
