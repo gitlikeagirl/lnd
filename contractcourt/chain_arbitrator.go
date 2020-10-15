@@ -396,6 +396,17 @@ func (c *ChainArbitrator) getArbChannel(
 	}
 }
 
+func startLockTimer(name string) time.Time {
+	start := time.Now()
+	log.Infof("CKC lock by: %v at: %v", name, start)
+	return start
+}
+
+func endLockTimer(name string, start time.Time) {
+	end := time.Now()
+	log.Infof("CKC lock by: %v duration: %v", name, end.Sub(start))
+}
+
 // ResolveContract marks a contract as fully resolved within the database.
 // This is only to be done once all contracts which were live on the channel
 // before hitting the chain have been resolved.
@@ -412,6 +423,9 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 		return err
 	}
 
+	name := "resolvecontract"
+	start := startLockTimer(name)
+
 	// Now that the channel has been marked as fully closed, we'll stop
 	// both the channel arbitrator and chain watcher for this channel if
 	// they're still active.
@@ -423,6 +437,8 @@ func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
 	chainWatcher := c.activeWatchers[chanPoint]
 	delete(c.activeWatchers, chanPoint)
 	c.Unlock()
+
+	endLockTimer(name, start)
 
 	if chainArb != nil {
 		arbLog = chainArb.log
@@ -681,11 +697,15 @@ func (c *ChainArbitrator) dispatchBlocks(
 	defer func() {
 		blockEpoch.Cancel()
 
+		name := "dispatch shutdown"
+		start := startLockTimer(name)
+
 		c.Lock()
 		for _, channel := range c.activeChannels {
 			close(channel.blocks)
 		}
 		c.Unlock()
+		endLockTimer(name, start)
 	}()
 
 	// Consume block epochs until we receive the instruction to shutdown.
@@ -708,6 +728,9 @@ func (c *ChainArbitrator) dispatchBlocks(
 			// Acquire our lock and dispatch this new block to each
 			// channel arbitrator, breaking early if we receive the
 			// instruction to shutdown.
+			name := "dispatchblocks"
+			start := startLockTimer(name)
+
 			c.Lock()
 		dispatch:
 			for _, arb := range c.activeChannels {
@@ -736,6 +759,7 @@ func (c *ChainArbitrator) dispatchBlocks(
 			}
 
 			c.Unlock()
+			endLockTimer(name, start)
 
 			if shutdown {
 				return
@@ -855,6 +879,9 @@ func (c *ChainArbitrator) Stop() error {
 	// Copy the current set of active watchers and arbitrators to shutdown.
 	// We don't want to hold the lock when shutting down each watcher or
 	// arbitrator individually, as they may need to acquire this mutex.
+	name := "stop"
+	start := startLockTimer(name)
+
 	c.Lock()
 	for chanPoint, watcher := range c.activeWatchers {
 		activeWatchers[chanPoint] = watcher
@@ -863,7 +890,7 @@ func (c *ChainArbitrator) Stop() error {
 		activeChannels[chanPoint] = arbitrator
 	}
 	c.Unlock()
-
+	endLockTimer(name, start)
 	for chanPoint, watcher := range activeWatchers {
 		log.Tracef("Attempting to stop ChainWatcher(%v)",
 			chanPoint)
@@ -925,9 +952,13 @@ func (c *ChainArbitrator) UpdateContractSignals(chanPoint wire.OutPoint,
 	log.Infof("Attempting to update ContractSignals for ChannelPoint(%v)",
 		chanPoint)
 
+	name := "contractsignals"
+	start := startLockTimer(name)
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
+	endLockTimer(name, start)
 	if !ok {
 		return fmt.Errorf("unable to find arbitrator")
 	}
@@ -942,9 +973,13 @@ func (c *ChainArbitrator) UpdateContractSignals(chanPoint wire.OutPoint,
 func (c *ChainArbitrator) GetChannelArbitrator(chanPoint wire.OutPoint) (
 	*ChannelArbitrator, error) {
 
+	name := "getarb"
+	start := startLockTimer(name)
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
+	endLockTimer(name, start)
 	if !ok {
 		return nil, fmt.Errorf("unable to find arbitrator")
 	}
@@ -974,9 +1009,13 @@ type forceCloseReq struct {
 //
 // TODO(roasbeef): just return the summary itself?
 func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.MsgTx, error) {
+	name := "force close"
+	start := startLockTimer(name)
+
 	c.Lock()
 	arbitrator, ok := c.activeChannels[chanPoint]
 	c.Unlock()
+	endLockTimer(name, start)
 	if !ok {
 		return nil, fmt.Errorf("unable to find arbitrator")
 	}
@@ -1031,8 +1070,12 @@ func (c *ChainArbitrator) ForceCloseContract(chanPoint wire.OutPoint) (*wire.Msg
 // channel has finished its final funding flow, it should be registered with
 // the ChainArbitrator so we can properly react to any on-chain events.
 func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error {
+	name := "watchnew"
+	start := startLockTimer(name)
+
 	c.Lock()
 	defer c.Unlock()
+	defer endLockTimer(name, start)
 
 	log.Infof("Creating new ChannelArbitrator for ChannelPoint(%v)",
 		newChan.FundingOutpoint)

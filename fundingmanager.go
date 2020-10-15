@@ -1875,6 +1875,9 @@ func (f *fundingManager) handleFundingCreated(peer lnpeer.Peer,
 		return
 	}
 
+	start := time.Now()
+	fndgLog.Infof("CKC watching new channel: %v start: %v", fundingOut, start)
+
 	// Now that we've sent over our final signature for this channel, we'll
 	// send it to the ChainArbitrator so it can watch for any on-chain
 	// actions during this final confirmation stage.
@@ -1882,6 +1885,8 @@ func (f *fundingManager) handleFundingCreated(peer lnpeer.Peer,
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingOut, err)
 	}
+	end := time.Now()
+	fndgLog.Infof("CKC finish watching new channel: %v duration: %v", fundingOut, end.Sub(start))
 
 	// Create an entry in the local discovery map so we can ensure that we
 	// process the channel confirmation fully before we receive a funding
@@ -2020,6 +2025,10 @@ func (f *fundingManager) handleFundingSigned(peer lnpeer.Peer,
 		}
 	}
 
+	start := time.Now()
+	fndgLog.Infof("CKC watching new channel: %v start: %v",
+		fundingPoint, start)
+
 	// Now that we have a finalized reservation for this funding flow,
 	// we'll send the to be active channel to the ChainArbitrator so it can
 	// watch for any on-chain actions before the channel has fully
@@ -2028,6 +2037,10 @@ func (f *fundingManager) handleFundingSigned(peer lnpeer.Peer,
 		fndgLog.Errorf("Unable to send new ChannelPoint(%v) for "+
 			"arbitration: %v", fundingPoint, err)
 	}
+
+	end := time.Now()
+	fndgLog.Infof("CKC finish watching new channel: %v duration: %v",
+		fundingPoint, end.Sub(start))
 
 	fndgLog.Infof("Finalizing pending_id(%x) over ChannelPoint(%v), "+
 		"waiting for channel open on-chain", pendingChanID[:],

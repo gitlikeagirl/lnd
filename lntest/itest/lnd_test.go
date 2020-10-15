@@ -81,7 +81,7 @@ func openChannelStream(ctx context.Context, t *harnessTest,
 		var err error
 		chanOpenUpdate, err = net.OpenChannel(ctx, alice, bob, p)
 		return err
-	}, defaultTimeout)
+	}, defaultTimeout*2)
 	if err != nil {
 		t.Fatalf("unable to open channel: %v", err)
 	}
