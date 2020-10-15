@@ -375,7 +375,7 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 }
 
 // Start starts all the goroutines that the ChannelArbitrator needs to operate.
-func (c *ChannelArbitrator) Start() error {
+func (c *ChannelArbitrator) Start(tx kvdb.RTx) error {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
 		return nil
 	}
@@ -393,7 +393,7 @@ func (c *ChannelArbitrator) Start() error {
 
 	// First, we'll read our last state from disk, so our internal state
 	// machine can act accordingly.
-	c.state, err = c.log.CurrentState()
+	c.state, err = c.log.CurrentState(tx)
 	if err != nil {
 		return err
 	}
@@ -449,7 +449,7 @@ func (c *ChannelArbitrator) Start() error {
 	// older nodes, this won't be found at all, and will rely on the
 	// existing written chain actions. Additionally, if this channel hasn't
 	// logged any actions in the log, then this field won't be present.
-	commitSet, err := c.log.FetchConfirmedCommitSet()
+	commitSet, err := c.log.FetchConfirmedCommitSet(tx)
 	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
 		return err
 	}
