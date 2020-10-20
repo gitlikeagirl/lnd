@@ -52,7 +52,7 @@ type mockArbitratorLog struct {
 // interface.
 var _ ArbitratorLog = (*mockArbitratorLog)(nil)
 
-func (b *mockArbitratorLog) CurrentState() (ArbitratorState, error) {
+func (b *mockArbitratorLog) CurrentState(kvdb.RTx) (ArbitratorState, error) {
 	return b.state, nil
 }
 
@@ -141,7 +141,7 @@ func (b *mockArbitratorLog) InsertConfirmedCommitSet(c *CommitSet) error {
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchConfirmedCommitSet() (*CommitSet, error) {
+func (b *mockArbitratorLog) FetchConfirmedCommitSet(kvdb.RTx) (*CommitSet, error) {
 	return b.commitSet, nil
 }
 
@@ -269,7 +269,7 @@ func (c *chanArbTestCtx) Restart(restartClosure func(*chanArbTestCtx)) (*chanArb
 		restartClosure(newCtx)
 	}
 
-	if err := newCtx.chanArb.Start(); err != nil {
+	if err := newCtx.chanArb.Start(nil); err != nil {
 		return nil, err
 	}
 
@@ -490,7 +490,7 @@ func TestChannelArbitratorCooperativeClose(t *testing.T) {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
 
-	if err := chanArbCtx.chanArb.Start(); err != nil {
+	if err := chanArbCtx.chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -548,7 +548,7 @@ func TestChannelArbitratorRemoteForceClose(t *testing.T) {
 	}
 	chanArb := chanArbCtx.chanArb
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -603,7 +603,7 @@ func TestChannelArbitratorLocalForceClose(t *testing.T) {
 	}
 	chanArb := chanArbCtx.chanArb
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -709,7 +709,7 @@ func TestChannelArbitratorBreachClose(t *testing.T) {
 	}
 	chanArb := chanArbCtx.chanArb
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -750,7 +750,7 @@ func TestChannelArbitratorLocalForceClosePendingHtlc(t *testing.T) {
 	chanArb.cfg.PreimageDB = newMockWitnessBeacon()
 	chanArb.cfg.Registry = &mockRegistry{}
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 
@@ -1017,7 +1017,7 @@ func TestChannelArbitratorLocalForceCloseRemoteConfirmed(t *testing.T) {
 	}
 	chanArb := chanArbCtx.chanArb
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -1126,7 +1126,7 @@ func TestChannelArbitratorLocalForceDoubleSpend(t *testing.T) {
 	}
 	chanArb := chanArbCtx.chanArb
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -1234,7 +1234,7 @@ func TestChannelArbitratorPersistence(t *testing.T) {
 	}
 
 	chanArb := chanArbCtx.chanArb
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 
@@ -1357,7 +1357,7 @@ func TestChannelArbitratorForceCloseBreachedChannel(t *testing.T) {
 	}
 
 	chanArb := chanArbCtx.chanArb
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 
@@ -1519,7 +1519,7 @@ func TestChannelArbitratorCommitFailure(t *testing.T) {
 		}
 
 		chanArb := chanArbCtx.chanArb
-		if err := chanArb.Start(); err != nil {
+		if err := chanArb.Start(nil); err != nil {
 			t.Fatalf("unable to start ChannelArbitrator: %v", err)
 		}
 
@@ -1605,7 +1605,7 @@ func TestChannelArbitratorEmptyResolutions(t *testing.T) {
 	chanArb.cfg.ClosingHeight = 100
 	chanArb.cfg.CloseType = channeldb.RemoteForceClose
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 
@@ -1637,7 +1637,7 @@ func TestChannelArbitratorAlreadyForceClosed(t *testing.T) {
 		t.Fatalf("unable to create ChannelArbitrator: %v", err)
 	}
 	chanArb := chanArbCtx.chanArb
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -1735,7 +1735,7 @@ func TestChannelArbitratorDanglingCommitForceClose(t *testing.T) {
 				t.Fatalf("unable to create ChannelArbitrator: %v", err)
 			}
 			chanArb := chanArbCtx.chanArb
-			if err := chanArb.Start(); err != nil {
+			if err := chanArb.Start(nil); err != nil {
 				t.Fatalf("unable to start ChannelArbitrator: %v", err)
 			}
 			defer chanArbCtx.shutdownAndAssert(true)
@@ -1926,7 +1926,7 @@ func TestChannelArbitratorPendingExpiredHTLC(t *testing.T) {
 		return false
 	}
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
@@ -2079,7 +2079,7 @@ func TestRemoteCloseInitiator(t *testing.T) {
 			}
 			chanArb := chanArbCtx.chanArb
 
-			if err := chanArb.Start(); err != nil {
+			if err := chanArb.Start(nil); err != nil {
 				t.Fatalf("unable to start "+
 					"ChannelArbitrator: %v", err)
 			}
@@ -2145,7 +2145,7 @@ func TestChannelArbitratorAnchors(t *testing.T) {
 			{}, {},
 		}
 
-	if err := chanArb.Start(); err != nil {
+	if err := chanArb.Start(nil); err != nil {
 		t.Fatalf("unable to start ChannelArbitrator: %v", err)
 	}
 	defer chanArbCtx.shutdownAndAssert(true)
