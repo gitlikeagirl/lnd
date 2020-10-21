@@ -873,6 +873,10 @@ type OpenChannelParams struct {
 	// FundingShim is an optional funding shim that the caller can specify
 	// in order to modify the channel funding workflow.
 	FundingShim *lnrpc.FundingShim
+
+	// RemoteCSVDelay is the remote CSV delay that we require for the other
+	// node.
+	RemoteCSVDelay uint16
 }
 
 // OpenChannel attempts to open a channel between srcNode and destNode with the
@@ -908,6 +912,7 @@ func (n *NetworkHarness) OpenChannel(ctx context.Context,
 		MinConfs:           minConfs,
 		SpendUnconfirmed:   p.SpendUnconfirmed,
 		MinHtlcMsat:        int64(p.MinHtlc),
+		RemoteCsvDelay:     uint32(p.RemoteCSVDelay),
 		RemoteMaxHtlcs:     uint32(p.RemoteMaxHtlcs),
 		FundingShim:        p.FundingShim,
 	}

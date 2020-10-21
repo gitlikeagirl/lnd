@@ -282,4 +282,8 @@ var testsCases = []*testCase{
 		name: "connection timeout",
 		test: testNetworkConnectionTimeout,
 	},
+	{
+		name: "local csv limit",
+		test: testLocalCsvLimit,
+	},
 }
