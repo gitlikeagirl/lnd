@@ -364,7 +364,7 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 
 	return &ChannelArbitrator{
 		log:              log,
-		blocks:           make(chan int32, 1),
+		blocks:           make(chan int32, 5),
 		signalUpdates:    make(chan *signalUpdateMsg),
 		htlcUpdates:      make(<-chan *ContractUpdate),
 		resolutionSignal: make(chan struct{}),
