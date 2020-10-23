@@ -1,11 +1,14 @@
 package chanacceptor
 
 import (
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 var (
@@ -43,6 +46,11 @@ type RPCAcceptor struct {
 	// acceptor, and the time it takes to receive a response.
 	timeout time.Duration
 
+	// parseUpfrontShutdown parses an upfront shutdown address with the
+	// active net parameters.
+	parseUpfrontShutdown func(address string) (lnwire.DeliveryAddress,
+		error)
+
 	// done is closed when the rpc client terminates.
 	done chan struct{}
 
@@ -70,7 +78,7 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected.Error(),
+		false, errChannelRejected.Error(), nil, 0, 0, 0, 0, 0, 0,
 	)
 
 	// Send the request to the newRequests channel.
@@ -110,16 +118,18 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 
 // NewRPCAcceptor creates and returns an instance of the RPCAcceptor.
 func NewRPCAcceptor(receive func() (*lnrpc.ChannelAcceptResponse, error),
-	send func(*lnrpc.ChannelAcceptRequest) error,
-	timeout time.Duration, quit chan struct{}) *RPCAcceptor {
+	send func(*lnrpc.ChannelAcceptRequest) error, timeout time.Duration,
+	parseUpfront func(address string) (lnwire.DeliveryAddress, error),
+	quit chan struct{}) *RPCAcceptor {
 
 	return &RPCAcceptor{
-		receive:  receive,
-		send:     send,
-		requests: make(chan *chanAcceptInfo),
-		timeout:  timeout,
-		done:     make(chan struct{}),
-		quit:     quit,
+		receive:              receive,
+		send:                 send,
+		requests:             make(chan *chanAcceptInfo),
+		timeout:              timeout,
+		parseUpfrontShutdown: parseUpfront,
+		done:                 make(chan struct{}),
+		quit:                 quit,
 	}
 }
 
@@ -153,9 +163,16 @@ func (r *RPCAcceptor) Run() error {
 			copy(pendingID[:], resp.PendingChanId)
 
 			openChanResp := lnrpc.ChannelAcceptResponse{
-				Accept:        resp.Accept,
-				PendingChanId: pendingID[:],
-				Error:         resp.Error,
+				Accept:          resp.Accept,
+				PendingChanId:   pendingID[:],
+				Error:           resp.Error,
+				UpfrontShutdown: resp.UpfrontShutdown,
+				CsvDelay:        resp.CsvDelay,
+				ReserveSat:      resp.ReserveSat,
+				InFlightMaxMsat: resp.InFlightMaxMsat,
+				MaxHtlcCount:    resp.MaxHtlcCount,
+				MinHtlcIn:       resp.MinHtlcIn,
+				MinAcceptDepth:  resp.MinAcceptDepth,
 			}
 
 			// We have received a decision for one of our channel
@@ -172,7 +189,10 @@ func (r *RPCAcceptor) Run() error {
 		}
 	}()
 
-	acceptRequests := make(map[[32]byte]chan *ChannelAcceptResponse)
+	// Create a map of pending channel IDs to our original open channel
+	// request and a response channel. We keep the original chanel open
+	// message so that we can validate our response against it.
+	acceptRequests := make(map[[32]byte]*chanAcceptInfo)
 
 	for {
 		select {
@@ -183,7 +203,7 @@ func (r *RPCAcceptor) Run() error {
 			req := newRequest.Request
 			pendingChanID := req.OpenChanMsg.PendingChannelID
 
-			acceptRequests[pendingChanID] = newRequest.Response
+			acceptRequests[pendingChanID] = newRequest
 
 			// A ChannelAcceptRequest has been received, send it to the client.
 			chanAcceptReq := &lnrpc.ChannelAcceptRequest{
@@ -215,7 +235,7 @@ func (r *RPCAcceptor) Run() error {
 			// over it.
 			var pendingID [32]byte
 			copy(pendingID[:], resp.PendingChanId)
-			respChan, ok := acceptRequests[pendingID]
+			requestInfo, ok := acceptRequests[pendingID]
 			if !ok {
 				continue
 			}
@@ -227,16 +247,24 @@ func (r *RPCAcceptor) Run() error {
 
 			// Validate the response we have received. If it is not
 			// valid, we log our error and reject the channel.
-			if err := validateAcceptorResponse(resp); err != nil {
+			shutdown, err := r.validateAcceptorResponse(
+				requestInfo.Request.OpenChanMsg.DustLimit, resp,
+			)
+			if err != nil {
 				log.Errorf("Invalid acceptor response: %v", err)
-
 				accept = false
 				acceptErr = errChannelRejected.Error()
 			}
 
-			// Send the response boolean over the buffered response
-			// channel.
-			respChan <- NewChannelAcceptResponse(accept, acceptErr)
+			requestInfo.Response <- NewChannelAcceptResponse(
+				accept, acceptErr, shutdown,
+				uint16(resp.CsvDelay),
+				uint16(resp.MaxHtlcCount),
+				uint16(resp.MinAcceptDepth),
+				btcutil.Amount(resp.ReserveSat),
+				lnwire.MilliSatoshi(resp.InFlightMaxMsat),
+				lnwire.MilliSatoshi(resp.MinHtlcIn),
+			)
 
 			// Delete the channel from the acceptRequests map.
 			delete(acceptRequests, pendingID)
@@ -255,21 +283,39 @@ func (r *RPCAcceptor) Run() error {
 
 // validateAcceptorResponse validates the response we get from the channel
 // acceptor.
-func validateAcceptorResponse(req lnrpc.ChannelAcceptResponse) error {
+func (r *RPCAcceptor) validateAcceptorResponse(dustLimit btcutil.Amount,
+	req lnrpc.ChannelAcceptResponse) (
+	lnwire.DeliveryAddress, error) {
+
 	// Accepting a channel and setting an error message is ambiguous, so we
 	// fail if both values are set.
 	if req.Accept && req.Error != "" {
-		return fmt.Errorf("channel acceptor response set accept=true "+
-			"and non-nil error message: %v", req.Error)
+		return nil, fmt.Errorf("channel acceptor response set "+
+			"accept=true and non-nil error message: %v", req.Error)
 	}
 
 	// Check with our error is within the length restriction.
 	if len(req.Error) > maxErrorLength {
-		return fmt.Errorf("acceptor response error exceeds maximum "+
-			"length: %v", maxErrorLength)
+		return nil, fmt.Errorf("acceptor response error exceeds "+
+			"maximum length: %v", maxErrorLength)
 	}
 
-	return nil
+	// Ensure that the reserve that has been proposed, if it is set, is at
+	// least the dust limit that was proposed by the remote peer.
+	reserveSat := btcutil.Amount(req.ReserveSat)
+	if reserveSat != 0 && reserveSat < dustLimit {
+		return nil, fmt.Errorf("remote reserve: %v sat must be "+
+			"greater than proposed dust limit: %v", req.ReserveSat,
+			dustLimit)
+	}
+
+	upfrontShutdown, err := r.parseUpfrontShutdown(req.UpfrontShutdown)
+	if err != nil {
+		return nil, fmt.Errorf("could not parse upfront shutdown for "+
+			"%v: %v", hex.EncodeToString(req.PendingChanId), err)
+	}
+
+	return upfrontShutdown, nil
 }
 
 // A compile-time constraint to ensure RPCAcceptor implements the ChannelAcceptor

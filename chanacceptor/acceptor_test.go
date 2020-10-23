@@ -6,12 +6,16 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec"
+	"github.com/btcsuite/btcutil"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/assert"
 )
 
-var timeout = time.Second
+var (
+	timeout  = time.Second
+	testAddr = lnwire.DeliveryAddress{1}
+)
 
 func randKey(t *testing.T) *btcec.PublicKey {
 	t.Helper()
@@ -62,6 +66,13 @@ func newChanAcceptorCtx(t *testing.T, acceptCallCount int,
 
 	testCtx.acceptor = NewRPCAcceptor(
 		testCtx.receiveResponse, testCtx.sendRequest, timeout*5,
+		func(addr string) (lnwire.DeliveryAddress, error) {
+			if addr == string(testAddr) {
+				return testAddr, nil
+			}
+
+			return nil, nil
+		},
 		testCtx.quit,
 	)
 
@@ -178,17 +189,31 @@ func TestMultipleAcceptClients(t *testing.T) {
 		// Queries is a map of the channel IDs we will query Accept
 		// with, and the set of outcomes we expect.
 		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
-			chan1: NewChannelAcceptResponse(true, ""),
-			chan2: NewChannelAcceptResponse(false, errChannelRejected.Error()),
-			chan3: NewChannelAcceptResponse(false, customError),
+			chan1: NewChannelAcceptResponse(
+				true, "", testAddr, 1, 2, 3, 4, 5, 6,
+			),
+			chan2: NewChannelAcceptResponse(
+				false, errChannelRejected.Error(), nil, 0, 0, 0,
+				0, 0, 0,
+			),
+			chan3: NewChannelAcceptResponse(
+				false, customError, nil, 0, 0, 0, 0, 0, 0,
+			),
 		}
 
 		// Responses is a mocked set of responses from the remote
 		// channel acceptor.
 		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
 			chan1.PendingChannelID: {
-				PendingChanId: chan1.PendingChannelID[:],
-				Accept:        true,
+				PendingChanId:   chan1.PendingChannelID[:],
+				Accept:          true,
+				UpfrontShutdown: string(testAddr),
+				CsvDelay:        1,
+				MaxHtlcCount:    2,
+				MinAcceptDepth:  3,
+				ReserveSat:      4,
+				InFlightMaxMsat: 5,
+				MinHtlcIn:       6,
 			},
 			chan2.PendingChannelID: {
 				PendingChanId: chan2.PendingChannelID[:],
@@ -226,7 +251,8 @@ func TestInvalidResponse(t *testing.T) {
 			{
 				PendingChannelID: chan1,
 			}: NewChannelAcceptResponse(
-				false, errChannelRejected.Error(),
+				false, errChannelRejected.Error(), nil, 0, 0,
+				0, 0, 0, 0,
 			),
 		}
 
@@ -237,6 +263,49 @@ func TestInvalidResponse(t *testing.T) {
 				PendingChanId: chan1[:],
 				Accept:        true,
 				Error:         "has an error as well",
+			},
+		}
+	)
+
+	// Create and start our channel acceptor.
+	testCtx := newChanAcceptorCtx(t, len(queries), responses)
+	testCtx.start()
+
+	testCtx.queryAndAssert(queries)
+
+	// We do not expect our channel acceptor to exit because of one invalid
+	// response, so we shutdown and assert here.
+	testCtx.stop()
+}
+
+// TestInvalidReserve tests validation of the channel reserve proposed by the
+// acceptor against the dust limit that was proposed by the remote peer.
+func TestInvalidReserve(t *testing.T) {
+	var (
+		chan1 = [32]byte{1}
+
+		dustLimit = btcutil.Amount(1000)
+		reserve   = dustLimit / 2
+
+		// We make a single query, and expect it to fail with our
+		// generic error because channel reserve it too low.
+		queries = map[*lnwire.OpenChannel]*ChannelAcceptResponse{
+			{
+				PendingChannelID: chan1,
+				DustLimit:        dustLimit,
+			}: NewChannelAcceptResponse(
+				false, errChannelRejected.Error(), nil, 0, 0,
+				0, reserve, 0, 0,
+			),
+		}
+
+		// Create a single response which is invalid because the
+		// proposed reserve is below our dust limit.
+		responses = map[[32]byte]*lnrpc.ChannelAcceptResponse{
+			chan1: {
+				PendingChanId: chan1[:],
+				Accept:        true,
+				ReserveSat:    uint64(reserve),
 			},
 		}
 	)
