@@ -2,18 +2,25 @@ package chanacceptor
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-var errShuttingDown = errors.New("server shutting down")
+var (
+	errShuttingDown = errors.New("server shutting down")
+
+	// maxErrorLength is the maximum error length we allow the error we
+	// send to our peer to be.
+	maxErrorLength = 500
+)
 
 // chanAcceptInfo contains a request for a channel acceptor decision, and a
 // channel that the response should be sent on.
 type chanAcceptInfo struct {
 	Request  *ChannelAcceptRequest
-	Response chan bool
+	Response chan *ChannelAcceptResponse
 }
 
 // RPCAcceptor represents the RPC-controlled variant of the ChannelAcceptor.
@@ -49,8 +56,8 @@ type RPCAcceptor struct {
 // receives, failing the request if the timeout elapses.
 //
 // NOTE: Part of the ChannelAcceptor interface.
-func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
-	respChan := make(chan bool, 1)
+func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
+	respChan := make(chan *ChannelAcceptResponse, 1)
 
 	newRequest := &chanAcceptInfo{
 		Request:  req,
@@ -60,6 +67,12 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	// timeout is the time after which ChannelAcceptRequests expire.
 	timeout := time.After(r.timeout)
 
+	// Create a rejection response which we can use for the cases where we
+	// reject the channel.
+	rejectChannel := NewChannelAcceptResponse(
+		false, errChannelRejected.Error(),
+	)
+
 	// Send the request to the newRequests channel.
 	select {
 	case r.requests <- newRequest:
@@ -67,13 +80,13 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	case <-timeout:
 		log.Errorf("RPCAcceptor returned false - reached timeout of %d",
 			r.timeout)
-		return false
+		return rejectChannel
 
 	case <-r.done:
-		return false
+		return rejectChannel
 
 	case <-r.quit:
-		return false
+		return rejectChannel
 	}
 
 	// Receive the response and return it. If no response has been received
@@ -85,13 +98,13 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) bool {
 	case <-timeout:
 		log.Errorf("RPCAcceptor returned false - reached timeout of %d",
 			r.timeout)
-		return false
+		return rejectChannel
 
 	case <-r.done:
-		return false
+		return rejectChannel
 
 	case <-r.quit:
-		return false
+		return rejectChannel
 	}
 }
 
@@ -142,6 +155,7 @@ func (r *RPCAcceptor) Run() error {
 			openChanResp := lnrpc.ChannelAcceptResponse{
 				Accept:        resp.Accept,
 				PendingChanId: pendingID[:],
+				Error:         resp.Error,
 			}
 
 			// We have received a decision for one of our channel
@@ -158,7 +172,7 @@ func (r *RPCAcceptor) Run() error {
 		}
 	}()
 
-	acceptRequests := make(map[[32]byte]chan bool)
+	acceptRequests := make(map[[32]byte]chan *ChannelAcceptResponse)
 
 	for {
 		select {
@@ -206,9 +220,23 @@ func (r *RPCAcceptor) Run() error {
 				continue
 			}
 
+			var (
+				accept    = resp.Accept
+				acceptErr = resp.Error
+			)
+
+			// Validate the response we have received. If it is not
+			// valid, we log our error and reject the channel.
+			if err := validateAcceptorResponse(resp); err != nil {
+				log.Errorf("Invalid acceptor response: %v", err)
+
+				accept = false
+				acceptErr = errChannelRejected.Error()
+			}
+
 			// Send the response boolean over the buffered response
 			// channel.
-			respChan <- resp.Accept
+			respChan <- NewChannelAcceptResponse(accept, acceptErr)
 
 			// Delete the channel from the acceptRequests map.
 			delete(acceptRequests, pendingID)
@@ -223,6 +251,25 @@ func (r *RPCAcceptor) Run() error {
 			return errShuttingDown
 		}
 	}
+}
+
+// validateAcceptorResponse validates the response we get from the channel
+// acceptor.
+func validateAcceptorResponse(req lnrpc.ChannelAcceptResponse) error {
+	// Accepting a channel and setting an error message is ambiguous, so we
+	// fail if both values are set.
+	if req.Accept && req.Error != "" {
+		return fmt.Errorf("channel acceptor response set accept=true "+
+			"and non-nil error message: %v", req.Error)
+	}
+
+	// Check with our error is within the length restriction.
+	if len(req.Error) > maxErrorLength {
+		return fmt.Errorf("acceptor response error exceeds maximum "+
+			"length: %v", maxErrorLength)
+	}
+
+	return nil
 }
 
 // A compile-time constraint to ensure RPCAcceptor implements the ChannelAcceptor
