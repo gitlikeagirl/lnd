@@ -613,13 +613,42 @@ func (c *ChainArbitrator) Start() error {
 		}
 	}
 
+	// Create a single read tx that we can use for all of our arbitrators
+	// db lookups as we start them. This reduces our load to a single tx
+	// rather than 2 * number of chan arbitrators.
+	tx, err := c.chanSource.BeginReadTx()
+	if err != nil {
+		if stopErr := c.Stop(); stopErr != nil {
+			log.Errorf("chain arb stop error: %v", err)
+		}
+
+		return fmt.Errorf("could no create chain arb start tx: %v", err)
+	}
+
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
 	for _, arbitrator := range c.activeChannels {
-		if err := arbitrator.Start(nil); err != nil {
-			c.Stop()
+		if err := arbitrator.Start(tx); err != nil {
+			if stopErr := c.Stop(); stopErr != nil {
+				log.Errorf("chain arb stop error: %v", err)
+			}
+
+			if rollbackErr := tx.Rollback(); rollbackErr != nil {
+				log.Errorf("chain arb tx rollback failed: %v",
+					err)
+			}
+
 			return err
 		}
+	}
+
+	if err := tx.Rollback(); err != nil {
+		if stopErr := c.Stop(); stopErr != nil {
+			log.Errorf("chain arb stop error: %v", err)
+		}
+
+		return fmt.Errorf("could not rollback chain arb start tx: %v",
+			err)
 	}
 
 	// Subscribe to a single stream of block epoch notifications that we
