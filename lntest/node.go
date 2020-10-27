@@ -244,6 +244,13 @@ func (cfg NodeConfig) genArgs() []string {
 	return args
 }
 
+func (hn *HarnessNode) LogStr(str string, args ...interface{}) {
+	err := hn.AddToLog(fmt.Sprintf("CKC: "+str+"\n", args...))
+	if err != nil {
+		fmt.Println("log failed ", err)
+	}
+}
+
 // HarnessNode represents an instance of lnd running within our test network
 // harness. Each HarnessNode instance also fully embeds an RPC client in
 // order to pragmatically drive the node.

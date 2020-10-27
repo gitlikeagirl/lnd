@@ -636,6 +636,7 @@ func (c *ChannelArbitrator) Report() []*ContractReport {
 
 // Stop signals the ChannelArbitrator for a graceful shutdown.
 func (c *ChannelArbitrator) Stop() error {
+	log.Info("CKC: channelarb stop called")
 	if !atomic.CompareAndSwapInt32(&c.stopped, 0, 1) {
 		return nil
 	}
@@ -652,8 +653,12 @@ func (c *ChannelArbitrator) Stop() error {
 	}
 	c.activeResolversLock.RUnlock()
 
+	log.Info("CKC: channelarb closing quit channel")
+
 	close(c.quit)
 	c.wg.Wait()
+
+	log.Info("CKC: channelarb stop complete")
 
 	return nil
 }
@@ -1138,6 +1143,9 @@ func (c *ChannelArbitrator) advanceState(
 	// We'll continue to advance our state forward until the state we
 	// transition to is that same state that we started at.
 	for {
+		log.Infof("CKC advancestate: %v starting with : %v",
+			c.cfg.ChanPoint, c.state)
+
 		priorState = c.state
 		log.Tracef("ChannelArbitrator(%v): attempting state step with "+
 			"trigger=%v from state=%v", c.cfg.ChanPoint, trigger,
@@ -2127,6 +2135,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 			bestHeight = blockEpoch.Height
 
+			log.Infof("CKC channelAttendant (0): %v received "+
+				"block: %v, ok=%v", c.cfg.ChanPoint,
+				blockEpoch.Height, ok)
+
 			// If we're not in the default state, then we can
 			// ignore this signal as we're waiting for contract
 			// resolution.
@@ -2154,6 +2166,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// state, so we'll get the most up to date signals to we can
 		// properly do our job.
 		case signalUpdate := <-c.signalUpdates:
+			log.Infof("CKC channelAttendant (1): %v received "+
+				"signal update: %v", c.cfg.ChanPoint,
+				signalUpdate)
+
 			log.Tracef("ChannelArbitrator(%v) got new signal "+
 				"update!", c.cfg.ChanPoint)
 
@@ -2170,6 +2186,10 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// commitment transaction. So we'll update our activeHTLCs map
 		// accordingly.
 		case htlcUpdate := <-c.htlcUpdates:
+			log.Infof("CKC channelAttendant (2): %v received "+
+				"htlcupdate=%v", c.cfg.ChanPoint,
+				htlcUpdate)
+
 			// We'll wipe out our old set of HTLC's for each
 			// htlcSetKey type included in this update in order to
 			// only monitor the HTLCs that are still active on this
@@ -2188,6 +2208,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We've cooperatively closed the channel, so we're no longer
 		// needed. We'll mark the channel as resolved and exit.
 		case closeInfo := <-c.cfg.ChainEvents.CooperativeClosure:
+			log.Infof("CKC channelAttendant (3): %v coop close ",
+				c.cfg.ChanPoint)
+
 			log.Infof("ChannelArbitrator(%v) marking channel "+
 				"cooperatively closed", c.cfg.ChanPoint)
 
@@ -2214,6 +2237,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We have broadcasted our commitment, and it is now confirmed
 		// on-chain.
 		case closeInfo := <-c.cfg.ChainEvents.LocalUnilateralClosure:
+			log.Infof("CKC channelAttendant (4): %v local force ",
+				c.cfg.ChanPoint)
+
 			log.Infof("ChannelArbitrator(%v): local on-chain "+
 				"channel close", c.cfg.ChanPoint)
 
@@ -2286,6 +2312,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We'll examine our state to determine if we need to act at
 		// all.
 		case uniClosure := <-c.cfg.ChainEvents.RemoteUnilateralClosure:
+			log.Infof("CKC channelAttendant (5): %v remote force ",
+				c.cfg.ChanPoint)
+
 			log.Infof("ChannelArbitrator(%v): remote party has "+
 				"closed channel out on-chain", c.cfg.ChanPoint)
 
@@ -2356,6 +2385,8 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// anything in particular, so just advance our state and
 		// gracefully exit.
 		case <-c.cfg.ChainEvents.ContractBreach:
+			log.Infof("CKC channelAttendant (6): %v breach ",
+				c.cfg.ChanPoint)
 			log.Infof("ChannelArbitrator(%v): remote party has "+
 				"breached channel!", c.cfg.ChanPoint)
 
@@ -2372,6 +2403,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// log to see if all contracts have been resolved. If so, then
 		// we can exit as the contract is fully resolved.
 		case <-c.resolutionSignal:
+			log.Infof("CKC channelAttendant (7): %v resolution sig ",
+				c.cfg.ChanPoint)
+
 			log.Infof("ChannelArbitrator(%v): a contract has been "+
 				"fully resolved!", c.cfg.ChanPoint)
 
@@ -2395,6 +2429,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 		// We've just received a request to forcibly close out the
 		// channel. We'll
 		case closeReq := <-c.forceCloseReqs:
+			log.Infof("CKC channelAttendant (8): %v closereq: %v ",
+				c.cfg.ChanPoint, closeReq)
+
 			if c.state != StateDefault {
 				select {
 				case closeReq.closeTx <- nil:
@@ -2438,6 +2475,9 @@ func (c *ChannelArbitrator) channelAttendant(bestHeight int32) {
 			}
 
 		case <-c.quit:
+			log.Infof("CKC channelAttendant (9): %v quit ",
+				c.cfg.ChanPoint)
+
 			return
 		}
 	}
