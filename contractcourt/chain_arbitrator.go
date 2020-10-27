@@ -613,6 +613,8 @@ func (c *ChainArbitrator) Start() error {
 		}
 	}
 
+	log.Info("CKC chainarb creating read tx")
+
 	// Create a single read tx that we can use for all of our arbitrators
 	// db lookups as we start them. This reduces our load to a single tx
 	// rather than 2 * number of chan arbitrators.
@@ -625,9 +627,12 @@ func (c *ChainArbitrator) Start() error {
 		return fmt.Errorf("could no create chain arb start tx: %v", err)
 	}
 
+	log.Info("CKC chainarb read tx created")
+
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
 	for _, arbitrator := range c.activeChannels {
+		log.Infof("CKC chainarb starting: %v", arbitrator.cfg.ChanPoint)
 		if err := arbitrator.Start(tx); err != nil {
 			if stopErr := c.Stop(); stopErr != nil {
 				log.Errorf("chain arb stop error: %v", err)
@@ -640,7 +645,10 @@ func (c *ChainArbitrator) Start() error {
 
 			return err
 		}
+		log.Infof("CKC chainarb started: %v", arbitrator.cfg.ChanPoint)
 	}
+
+	log.Info("CKC chainarb read tx rolling back")
 
 	if err := tx.Rollback(); err != nil {
 		if stopErr := c.Stop(); stopErr != nil {
@@ -650,6 +658,8 @@ func (c *ChainArbitrator) Start() error {
 		return fmt.Errorf("could not rollback chain arb start tx: %v",
 			err)
 	}
+
+	log.Info("CKC chainarb read tx rolled back")
 
 	// Subscribe to a single stream of block epoch notifications that we
 	// will dispatch to all active arbitrators.
@@ -713,6 +723,9 @@ func (c *ChainArbitrator) dispatchBlocks(
 		blockEpoch.Cancel()
 
 		recipients := getRecipients()
+		log.Infof("CKC dispatchblocks shutting down: %v "+
+			"channels", len(recipients))
+
 		for _, recipient := range recipients {
 			close(recipient.blocks)
 		}
@@ -724,6 +737,8 @@ func (c *ChainArbitrator) dispatchBlocks(
 		// Consume block epochs, exiting if our subscription is
 		// terminated.
 		case block, ok := <-blockEpoch.Epochs:
+			log.Infof("CKC dispatchblocks received %v", block)
+
 			if !ok {
 				log.Trace("dispatchBlocks block epoch " +
 					"cancelled")
@@ -734,10 +749,16 @@ func (c *ChainArbitrator) dispatchBlocks(
 			// Get the set of currently active channels block
 			// subscription channels and dispatch the block to
 			// each.
-			for _, recipient := range getRecipients() {
+			recipients := getRecipients()
+			log.Infof("CKC dispatchblocks: %v channels",
+				len(recipients))
+
+			for _, recipient := range recipients {
+				log.Infof("CKC dispatchblocks sending %v to %v", block, recipient.chanPoint)
 				select {
 				// Deliver the block to the arbitrator.
 				case recipient.blocks <- block.Height:
+					log.Infof("CKC dispatchblocks sent %v to %v", block, recipient.chanPoint)
 
 				// If the recipient is shutting down, exit
 				// without delivering the block. This may be
@@ -755,6 +776,7 @@ func (c *ChainArbitrator) dispatchBlocks(
 				// need to deliver any more blocks (everything
 				// will be shutting down).
 				case <-c.quit:
+					log.Info("CKC dispatchblocks exiting")
 					return
 				}
 			}
@@ -1095,9 +1117,13 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// arbitrators, then launch it.
 	c.activeChannels[chanPoint] = channelArb
 
+	log.Infof("CKC WatchNewChannel starting arb: %v", channelArb.cfg.ChanPoint)
+
 	if err := channelArb.Start(nil); err != nil {
 		return err
 	}
+
+	log.Infof("CKC WatchNewChannel done starting arb: %v", channelArb.cfg.ChanPoint)
 
 	return chainWatcher.Start()
 }
