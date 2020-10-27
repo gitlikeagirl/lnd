@@ -1129,6 +1129,8 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		}
 	}
 
+	lnNode.LogStr("closechannel: %v requesting close", chanPoint)
+
 	closeReq := &lnrpc.CloseChannelRequest{
 		ChannelPoint: cp,
 		Force:        force,
@@ -1138,9 +1140,13 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 		return nil, nil, fmt.Errorf("unable to close channel: %v", err)
 	}
 
+	lnNode.LogStr("closechannel: %v requested close", chanPoint)
+
 	errChan := make(chan error)
 	fin := make(chan *chainhash.Hash)
 	go func() {
+		lnNode.LogStr("closechannel: %v closing channel", chanPoint)
+
 		// Consume the "channel close" update in order to wait for the closing
 		// transaction to be broadcast, then wait for the closing tx to be seen
 		// within the network.
@@ -1156,6 +1162,9 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 				"instead got %v", pendingClose)
 			return
 		}
+		lnNode.LogStr("closechannel: %v pending update received: %v",
+			chanPoint, pendingClose.ClosePending.Txid,
+		)
 
 		closeTxid, err := chainhash.NewHash(pendingClose.ClosePending.Txid)
 		if err != nil {
@@ -1168,6 +1177,7 @@ func (n *NetworkHarness) CloseChannel(ctx context.Context,
 				"broadcast tx: %v", err)
 			return
 		}
+		lnNode.LogStr("closechannel: %v complete", chanPoint)
 		fin <- closeTxid
 	}()
 

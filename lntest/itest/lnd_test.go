@@ -49,6 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -3351,6 +3352,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 			}
 			defer shutdownAndAssert(net, ht, alice)
 
+			alice.LogStr("testChannelForceClosure (2)")
+
 			// Since we'd like to test failure scenarios with
 			// outstanding htlcs, we'll introduce another node into
 			// our test network: Carol.
@@ -3361,6 +3364,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				t.Fatalf("unable to create new nodes: %v", err)
 			}
 			defer shutdownAndAssert(net, ht, carol)
+
+			alice.LogStr("testChannelForceClosure (3)")
 
 			// Each time, we'll send Alice  new set of coins in
 			// order to fund the channel.
@@ -3375,6 +3380,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 					err)
 			}
 
+			alice.LogStr("testChannelForceClosure (4)")
+
 			// Also give Carol some coins to allow her to sweep her
 			// anchor.
 			err = net.SendCoins(
@@ -3384,6 +3391,8 @@ func testChannelForceClosure(net *lntest.NetworkHarness, t *harnessTest) {
 				t.Fatalf("unable to send coins to Alice: %v",
 					err)
 			}
+
+			alice.LogStr("testChannelForceClosure (5)")
 
 			channelForceClosureTest(
 				net, ht, alice, carol, channelType,
@@ -3410,6 +3419,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	const commitFeeRate = 20000
 	net.SetFeeEstimate(commitFeeRate)
 
+	alice.LogStr("testChannelForceClosure (6)")
+
 	// TODO(roasbeef): should check default value in config here
 	// instead, or make delay a param
 	defaultCLTV := uint32(lnd.DefaultBitcoinTimeLockDelta)
@@ -3420,6 +3431,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err := net.ConnectNodes(ctxt, alice, carol); err != nil {
 		t.Fatalf("unable to connect alice to carol: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (7)")
 
 	// Before we start, obtain Carol's current wallet balance, we'll check
 	// to ensure that at the end of the force closure by Alice, Carol
@@ -3442,6 +3455,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		},
 	)
 
+	alice.LogStr("testChannelForceClosure (8)")
+
 	// Wait for Alice and Carol to receive the channel edge from the
 	// funding manager.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
@@ -3455,6 +3470,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("alice didn't see the alice->carol channel before "+
 			"timeout: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (9)")
 
 	// Send payments from Alice to Carol, since Carol is htlchodl mode, the
 	// htlc outputs should be left unsettled, and should be swept by the
@@ -3480,6 +3497,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
+	alice.LogStr("testChannelForceClosure (10)")
+
 	// Once the HTLC has cleared, all the nodes n our mini network should
 	// show that the HTLC has been locked in.
 	nodes := []*lntest.HarnessNode{alice, carol}
@@ -3495,13 +3514,15 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("htlc mismatch: %v", predErr)
 	}
 
+	alice.LogStr("testChannelForceClosure (11)")
+
 	// Fetch starting height of this test so we can compute the block
 	// heights we expect certain events to take place.
 	_, curHeight, err := net.Miner.Node.GetBestBlock()
 	if err != nil {
 		t.Fatalf("unable to get best block height")
 	}
-
+	alice.LogStr("testChannelForceClosure (12)")
 	// Using the current height of the chain, derive the relevant heights
 	// for incubating two-stage htlcs.
 	var (
@@ -3520,6 +3541,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("alice should see at least one update to her channel")
 	}
 
+	alice.LogStr("testChannelForceClosure (13)")
+
 	// Now that the channel is open and we have unsettled htlcs, immediately
 	// execute a force closure of the channel. This will also assert that
 	// the commitment transaction was immediately broadcast in order to
@@ -3532,6 +3555,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to execute force channel closure: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (14)")
 
 	// Now that the channel has been force closed, it should show up in the
 	// PendingChannels RPC under the waiting close section.
@@ -3546,6 +3571,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf(err.Error())
 	}
 
+	alice.LogStr("testChannelForceClosure (15)")
+
 	// Compute the outpoint of the channel, which we will use repeatedly to
 	// locate the pending channel information in the rpc responses.
 	txid, err := lnd.GetChanPointFundingTxid(chanPoint)
@@ -3557,6 +3584,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		Index: chanPoint.OutputIndex,
 	}
 
+	alice.LogStr("testChannelForceClosure (16)")
+
 	waitingClose, err := findWaitingCloseChannel(pendingChanResp, &op)
 	if err != nil {
 		t.Fatalf(err.Error())
@@ -3567,12 +3596,16 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("all funds should still be in limbo")
 	}
 
+	alice.LogStr("testChannelForceClosure (17)")
+
 	// Create a map of outpoints to expected resolutions for alice and carol
 	// which we will add reports to as we sweep outputs.
 	var (
 		aliceReports = make(map[string]*lnrpc.Resolution)
 		carolReports = make(map[string]*lnrpc.Resolution)
 	)
+
+	alice.LogStr("testChannelForceClosure (18)")
 
 	// The several restarts in this test are intended to ensure that when a
 	// channel is force-closed, the UTXO nursery has persisted the state of
@@ -3583,6 +3616,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (19)")
 
 	// Mine a block which should confirm the commitment transaction
 	// broadcast as a result of the force closure. If there are anchors, we
@@ -3600,6 +3635,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf("failed to find commitment in miner mempool: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (20)")
 
 	// Verify fee rate of the commitment tx plus anchor if present.
 	var totalWeight, totalFee int64
@@ -3624,6 +3661,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t, net, sweepTxns, aliceCloseTx,
 	)
 
+	alice.LogStr("testChannelForceClosure (21)")
+
 	// If we expect anchors, add alice's anchor to our expected set of
 	// reports.
 	if channelType == commitTypeAnchors {
@@ -3643,6 +3682,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to generate block: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (22)")
 
 	// Now that the commitment has been confirmed, the channel should be
 	// marked as force closed.
@@ -3697,6 +3738,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf(predErr.Error())
 	}
 
+	alice.LogStr("testChannelForceClosure (23)")
+
 	// The following restart is intended to ensure that outputs from the
 	// force close commitment transaction have been persisted once the
 	// transaction has been confirmed, but before the outputs are spendable
@@ -3704,6 +3747,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (24)")
 
 	// Carol's sweep tx should be in the mempool already, as her output is
 	// not timelocked. If there are anchors, we also expect Carol's anchor
@@ -3716,11 +3761,15 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 			err)
 	}
 
+	alice.LogStr("testChannelForceClosure (25)")
+
 	// We look up the sweep txns we have found in mempool and create
 	// expected resolutions for carol.
 	carolCommit, carolAnchor := findCommitAndAnchor(
 		t, net, sweepTxns, aliceCloseTx,
 	)
+
+	alice.LogStr("testChannelForceClosure (26)")
 
 	// If we have anchors, add an anchor resolution for carol.
 	if channelType == commitTypeAnchors {
@@ -3737,6 +3786,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		}
 	}
 
+	alice.LogStr("testChannelForceClosure (27)")
+
 	// Currently within the codebase, the default CSV is 4 relative blocks.
 	// For the persistence test, we generate two blocks, then trigger
 	// a restart and then generate the final block that should trigger
@@ -3745,12 +3796,16 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
 
+	alice.LogStr("testChannelForceClosure (28)")
+
 	// The following restart checks to ensure that outputs in the
 	// kindergarten bucket are persisted while waiting for the required
 	// number of confirmations to be reported.
 	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (29)")
 
 	// Alice should see the channel in her set of pending force closed
 	// channels with her funds still in limbo.
@@ -3812,11 +3867,15 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf(err.Error())
 	}
 
+	alice.LogStr("testChannelForceClosure (30)")
+
 	// Generate an additional block, which should cause the CSV delayed
 	// output from the commitment txn to expire.
 	if _, err := net.Miner.Node.Generate(1); err != nil {
 		t.Fatalf("unable to mine blocks: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (31)")
 
 	// At this point, the CSV will expire in the next block, meaning that
 	// the sweeping transaction should now be broadcast. So we fetch the
@@ -3825,6 +3884,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf("failed to get sweep tx from mempool: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (32)")
 
 	// Fetch the sweep transaction, all input it's spending should be from
 	// the commitment transaction which was broadcast on-chain.
@@ -3839,6 +3900,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 				closingTxID, txIn.PreviousOutPoint)
 		}
 	}
+
+	alice.LogStr("testChannelForceClosure (33)")
 
 	// We expect a resolution which spends our commit output.
 	output := sweepTx.MsgTx().TxIn[0].PreviousOutPoint
@@ -3866,6 +3929,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		SweepTxid: carolCommit.SweepTx,
 	}
 
+	alice.LogStr("testChannelForceClosure (34)")
+
 	// Check that we can find the commitment sweep in our set of known
 	// sweeps.
 	err = findSweep(ctxb, alice, sweepingTXID)
@@ -3873,11 +3938,15 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("csv sweep not found: %v", err)
 	}
 
+	alice.LogStr("testChannelForceClosure (35)")
+
 	// Restart Alice to ensure that she resumes watching the finalized
 	// commitment sweep txid.
 	if err := net.RestartNode(alice, nil); err != nil {
 		t.Fatalf("Node restart failed: %v", err)
 	}
+
+	alice.LogStr("testChannelForceClosure (36)")
 
 	// Next, we mine an additional block which should include the sweep
 	// transaction as the input scripts and the sequence locks on the
@@ -3891,6 +3960,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 		t.Fatalf("unable to get block: %v", err)
 	}
 
+	alice.LogStr("testChannelForceClosure (37)")
+
 	assertTxInBlock(t, block, sweepTx.Hash())
 
 	// Update current height
@@ -3898,6 +3969,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf("unable to get best block height")
 	}
+
+	alice.LogStr("testChannelForceClosure (38)")
 
 	err = wait.Predicate(func() bool {
 		// Now that the commit output has been fully swept, check to see
@@ -3947,6 +4020,8 @@ func channelForceClosureTest(net *lntest.NetworkHarness, t *harnessTest,
 	if err != nil {
 		t.Fatalf(predErr.Error())
 	}
+
+	alice.LogStr("testChannelForceClosure (39)")
 
 	// Compute the height preceding that which will cause the htlc CLTV
 	// timeouts will expire. The outputs entered at the same height as the
@@ -14180,6 +14255,15 @@ func TestLightningNetworkDaemon(t *testing.T) {
 			ht := newHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})
+
+		doneLog := fmt.Sprintf("COMPLETE ============ %v ============\n",
+			testCase.name)
+
+		err = lndHarness.Alice.AddToLog(doneLog)
+		assert.NoError(t, err)
+
+		err = lndHarness.Bob.AddToLog(doneLog)
+		assert.NoError(t, err)
 
 		// Stop at the first failure. Mimic behavior of original test
 		// framework.
