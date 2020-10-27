@@ -283,7 +283,7 @@ func (h *htlcIncomingContestResolver) Resolve() (ContractResolver, error) {
 
 		// With the epochs and preimage subscriptions initialized, we'll
 		// query to see if we already know the preimage.
-		preimage, ok := h.PreimageDB.LookupPreimage(h.htlc.RHash)
+		preimage, ok := h.PreimageDB.LookupPreimage(nil, h.htlc.RHash)
 		if ok {
 			// If we do, then this means we can claim the HTLC!
 			// However, we don't know how to ourselves, so we'll

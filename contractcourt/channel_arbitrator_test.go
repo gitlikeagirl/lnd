@@ -55,7 +55,7 @@ func (b *mockArbitratorLog) CurrentState(kvdb.RTx) (ArbitratorState, error) {
 	return b.state, nil
 }
 
-func (b *mockArbitratorLog) CommitState(s ArbitratorState) error {
+func (b *mockArbitratorLog) CommitState(_ kvdb.RwTx, s ArbitratorState) error {
 	if b.failCommit && s == b.failCommitState {
 		return fmt.Errorf("intentional commit error at state %v",
 			b.failCommitState)
@@ -65,7 +65,7 @@ func (b *mockArbitratorLog) CommitState(s ArbitratorState) error {
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver,
+func (b *mockArbitratorLog) FetchUnresolvedContracts(_ kvdb.RTx) ([]ContractResolver,
 	error) {
 
 	b.Lock()
@@ -80,7 +80,8 @@ func (b *mockArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver,
 	return v, nil
 }
 
-func (b *mockArbitratorLog) InsertUnresolvedContracts(_ []*channeldb.ResolverReport,
+func (b *mockArbitratorLog) InsertUnresolvedContracts(_ kvdb.RwTx,
+	_ []*channeldb.ResolverReport,
 	resolvers ...ContractResolver) error {
 
 	b.Lock()
@@ -123,7 +124,7 @@ func (b *mockArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 	return nil
 }
 
-func (b *mockArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
+func (b *mockArbitratorLog) FetchContractResolutions(_ kvdb.RTx) (*ContractResolutions, error) {
 	if b.failFetch != nil {
 		return nil, b.failFetch
 	}
@@ -157,8 +158,8 @@ type testArbLog struct {
 	newStates chan ArbitratorState
 }
 
-func (t *testArbLog) CommitState(s ArbitratorState) error {
-	if err := t.ArbitratorLog.CommitState(s); err != nil {
+func (t *testArbLog) CommitState(tx kvdb.RwTx, s ArbitratorState) error {
+	if err := t.ArbitratorLog.CommitState(tx, s); err != nil {
 		return err
 	}
 
@@ -358,12 +359,13 @@ func createTestChannelArbitrator(t *testing.T, log ArbitratorLog,
 	arbCfg := &ChannelArbitratorConfig{
 		ChanPoint:   chanPoint,
 		ShortChanID: shortChanID,
-		MarkChannelResolved: func() error {
+		MarkChannelResolved: func(_ kvdb.RwTx) error {
 			resolvedChan <- struct{}{}
 			return nil
 		},
 		Channel: &mockChannel{},
-		MarkCommitmentBroadcasted: func(_ *wire.MsgTx, _ bool) error {
+		MarkCommitmentBroadcasted: func(_ kvdb.RwTx,
+			_ *wire.MsgTx, _ bool) error {
 			return nil
 		},
 		MarkChannelClosed: func(*channeldb.ChannelCloseSummary,
@@ -2286,13 +2288,13 @@ type mockChannel struct {
 	anchorResolutions []*lnwallet.AnchorResolution
 }
 
-func (m *mockChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+func (m *mockChannel) NewAnchorResolutions(_ kvdb.RTx) ([]*lnwallet.AnchorResolution,
 	error) {
 
 	return m.anchorResolutions, nil
 }
 
-func (m *mockChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+func (m *mockChannel) ForceCloseChan(_ kvdb.RwTx) (*lnwallet.LocalForceCloseSummary, error) {
 	summary := &lnwallet.LocalForceCloseSummary{
 		CloseTx:         &wire.MsgTx{},
 		HtlcResolutions: &lnwallet.HtlcResolutions{},

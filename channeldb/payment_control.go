@@ -75,11 +75,6 @@ var (
 	// errNoAttemptInfo is returned when no attempt info is stored yet.
 	errNoAttemptInfo = errors.New("unable to find attempt info for " +
 		"inflight payment")
-
-	// errNoSequenceNrIndex is returned when an attempt to lookup a payment
-	// index is made for a sequence number that is not indexed.
-	errNoSequenceNrIndex = errors.New("payment sequence number index " +
-		"does not exist")
 )
 
 // PaymentControl implements persistence for payments and payment attempts.

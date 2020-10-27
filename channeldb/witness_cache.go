@@ -136,8 +136,10 @@ func (w *WitnessCache) addWitnessEntries(wType WitnessType,
 
 // LookupSha256Witness attempts to lookup the preimage for a sha256 hash. If
 // the witness isn't found, ErrNoWitnesses will be returned.
-func (w *WitnessCache) LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage, error) {
-	witness, err := w.lookupWitness(Sha256HashWitness, hash[:])
+func (w *WitnessCache) LookupSha256Witness(tx kvdb.RTx,
+	hash lntypes.Hash) (lntypes.Preimage, error) {
+
+	witness, err := w.lookupWitness(tx, Sha256HashWitness, hash[:])
 	if err != nil {
 		return lntypes.Preimage{}, err
 	}
@@ -148,38 +150,45 @@ func (w *WitnessCache) LookupSha256Witness(hash lntypes.Hash) (lntypes.Preimage,
 // lookupWitness attempts to lookup a witness according to its type and also
 // its witness key. In the case that the witness isn't found, ErrNoWitnesses
 // will be returned.
-func (w *WitnessCache) lookupWitness(wType WitnessType, witnessKey []byte) ([]byte, error) {
+func (w *WitnessCache) lookupWitness(tx kvdb.RTx, wType WitnessType, witnessKey []byte) ([]byte, error) {
+	if tx != nil {
+		return lookupWitness(tx, wType, witnessKey)
+	}
+
 	var witness []byte
 	err := kvdb.View(w.db, func(tx kvdb.RTx) error {
-		witnessBucket := tx.ReadBucket(witnessBucketKey)
-		if witnessBucket == nil {
-			return ErrNoWitnesses
-		}
-
-		witnessTypeBucketKey, err := wType.toDBKey()
-		if err != nil {
-			return err
-		}
-		witnessTypeBucket := witnessBucket.NestedReadBucket(witnessTypeBucketKey)
-		if witnessTypeBucket == nil {
-			return ErrNoWitnesses
-		}
-
-		dbWitness := witnessTypeBucket.Get(witnessKey)
-		if dbWitness == nil {
-			return ErrNoWitnesses
-		}
-
-		witness = make([]byte, len(dbWitness))
-		copy(witness[:], dbWitness)
-
-		return nil
+		var err error
+		witness, err = lookupWitness(tx, wType, witnessKey)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
 	return witness, nil
+}
+
+func lookupWitness(tx kvdb.RTx, wType WitnessType, witnessKey []byte) ([]byte, error) {
+	witnessBucket := tx.ReadBucket(witnessBucketKey)
+	if witnessBucket == nil {
+		return nil, ErrNoWitnesses
+	}
+
+	witnessTypeBucketKey, err := wType.toDBKey()
+	if err != nil {
+		return nil, err
+	}
+	witnessTypeBucket := witnessBucket.NestedReadBucket(witnessTypeBucketKey)
+	if witnessTypeBucket == nil {
+		return nil, ErrNoWitnesses
+	}
+
+	dbWitness := witnessTypeBucket.Get(witnessKey)
+	if dbWitness == nil {
+		return nil, ErrNoWitnesses
+	}
+
+	return dbWitness, nil
 }
 
 // DeleteSha256Witness attempts to delete a sha256 preimage identified by hash.

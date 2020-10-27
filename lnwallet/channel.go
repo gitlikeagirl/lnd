@@ -6851,7 +6851,7 @@ func (lc *LightningChannel) MarkBorked() error {
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkBorked()
+	return lc.channelState.MarkBorked(nil)
 }
 
 // MarkCommitmentBroadcasted marks the channel as a commitment transaction has
@@ -6864,7 +6864,9 @@ func (lc *LightningChannel) MarkCommitmentBroadcasted(tx *wire.MsgTx,
 	lc.Lock()
 	defer lc.Unlock()
 
-	return lc.channelState.MarkCommitmentBroadcasted(tx, locallyInitiated)
+	return lc.channelState.MarkCommitmentBroadcasted(
+		nil, tx, locallyInitiated,
+	)
 }
 
 // MarkCoopBroadcasted marks the channel as a cooperative close transaction has

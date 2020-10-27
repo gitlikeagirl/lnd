@@ -40,7 +40,7 @@ func TestWitnessCacheSha256Retrieval(t *testing.T) {
 
 		// We should get back the *exact* same preimage as we originally
 		// stored.
-		dbPreimage, err := wCache.LookupSha256Witness(hash)
+		dbPreimage, err := wCache.LookupSha256Witness(nil, hash)
 		if err != nil {
 			t.Fatalf("unable to look up witness: %v", err)
 		}
@@ -86,7 +86,7 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to delete witness: %v", err)
 	}
-	_, err = wCache.LookupSha256Witness(hash1)
+	_, err = wCache.LookupSha256Witness(nil, hash1)
 	if err != ErrNoWitnesses {
 		t.Fatalf("expected ErrNoWitnesses instead got: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestWitnessCacheSha256Deletion(t *testing.T) {
 	if err := wCache.DeleteWitnessClass(Sha256HashWitness); err != nil {
 		t.Fatalf("unable to delete witness class: %v", err)
 	}
-	_, err = wCache.LookupSha256Witness(hash2)
+	_, err = wCache.LookupSha256Witness(nil, hash2)
 	if err != ErrNoWitnesses {
 		t.Fatalf("expected ErrNoWitnesses instead got: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestAddSha256Witnesses(t *testing.T) {
 	for i, hash := range hashes {
 		preimage := preimages[i]
 
-		dbPreimage, err := wCache.LookupSha256Witness(hash)
+		dbPreimage, err := wCache.LookupSha256Witness(nil, hash)
 		if err != nil {
 			t.Fatalf("unable to lookup witness: %v", err)
 		}
@@ -191,7 +191,7 @@ func TestAddSha256Witnesses(t *testing.T) {
 	for i, hash := range hashes {
 		preimage := preimages[i]
 
-		dbPreimage, err := wCache.LookupSha256Witness(hash)
+		dbPreimage, err := wCache.LookupSha256Witness(nil, hash)
 		if err != nil {
 			t.Fatalf("unable to lookup witness: %v", err)
 		}

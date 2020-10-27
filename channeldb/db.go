@@ -492,7 +492,7 @@ func (db *DB) fetchNodeChannels(chainBucket kvdb.RBucket) ([]*OpenChannel, error
 
 // FetchChannel attempts to locate a channel specified by the passed channel
 // point. If the channel cannot be found, then an error will be returned.
-func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
+func (db *DB) FetchChannel(tx kvdb.RTx, chanPoint wire.OutPoint) (*OpenChannel, error) {
 	var (
 		targetChan      *OpenChannel
 		targetChanPoint bytes.Buffer
@@ -567,14 +567,19 @@ func (d *DB) FetchChannel(chanPoint wire.OutPoint) (*OpenChannel, error) {
 				}
 
 				targetChan = channel
-				targetChan.Db = d
+				targetChan.Db = db
 
 				return nil
 			})
 		})
 	}
 
-	err := kvdb.View(d, chanScan)
+	var err error
+	if tx != nil {
+		err = chanScan(tx)
+	} else {
+		err = kvdb.View(db, chanScan)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1083,7 +1088,7 @@ func (db *DB) AbandonChannel(chanPoint *wire.OutPoint, bestHeight uint32) error 
 	// With the chanPoint constructed, we'll attempt to find the target
 	// channel in the database. If we can't find the channel, then we'll
 	// return the error back to the caller.
-	dbChan, err := db.FetchChannel(*chanPoint)
+	dbChan, err := db.FetchChannel(nil, *chanPoint)
 	switch {
 	// If the channel wasn't found, then it's possible that it was already
 	// abandoned from the database.

@@ -955,7 +955,7 @@ func (c *chainWatcher) dispatchContractBreach(spendEvent *chainntnfs.SpendDetail
 		"ChannelPoint(%v). Revoked state #%v was broadcast!!!",
 		c.cfg.chanState.FundingOutpoint, broadcastStateNum)
 
-	if err := c.cfg.chanState.MarkBorked(); err != nil {
+	if err := c.cfg.chanState.MarkBorked(nil); err != nil {
 		return fmt.Errorf("unable to mark channel as borked: %v", err)
 	}
 

@@ -812,7 +812,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		ForAllOutgoingChannels:    s.chanRouter.ForAllOutgoingChannels,
 		PropagateChanPolicyUpdate: s.authGossiper.PropagateChanPolicyUpdate,
 		UpdateForwardingPolicies:  s.htlcSwitch.UpdateForwardingPolicies,
-		FetchChannel:              s.remoteChanDB.FetchChannel,
+		FetchChannel: func(chanPoint wire.OutPoint) (*channeldb.OpenChannel, error) {
+			return s.remoteChanDB.FetchChannel(nil, chanPoint)
+		},
 	}
 
 	utxnStore, err := newNurseryStore(s.cfg.ActiveNetParams.GenesisHash, remoteChanDB)

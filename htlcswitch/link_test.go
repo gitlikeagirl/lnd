@@ -4411,7 +4411,7 @@ func checkHasPreimages(t *testing.T, coreLink *channelLink,
 	err := wait.NoError(func() error {
 		for i := range htlcs {
 			_, ok := coreLink.cfg.PreimageCache.LookupPreimage(
-				htlcs[i].PaymentHash,
+				nil, htlcs[i].PaymentHash,
 			)
 			if ok == expOk {
 				continue

@@ -60,18 +60,19 @@ type ArbitratorLog interface {
 	CurrentState(tx kvdb.RTx) (ArbitratorState, error)
 
 	// CommitState persists, the current state of the chain attendant.
-	CommitState(ArbitratorState) error
+	CommitState(kvdb.RwTx, ArbitratorState) error
 
 	// InsertUnresolvedContracts inserts a set of unresolved contracts into
 	// the log. The log will then persistently store each contract until
 	// they've been swapped out, or resolved. It takes a set of report which
 	// should be written to disk if as well if it is non-nil.
-	InsertUnresolvedContracts(reports []*channeldb.ResolverReport,
+	InsertUnresolvedContracts(tx kvdb.RwTx,
+		reports []*channeldb.ResolverReport,
 		resolvers ...ContractResolver) error
 
 	// FetchUnresolvedContracts returns all unresolved contracts that have
 	// been previously written to the log.
-	FetchUnresolvedContracts() ([]ContractResolver, error)
+	FetchUnresolvedContracts(tx kvdb.RTx) ([]ContractResolver, error)
 
 	// SwapContract performs an atomic swap of the old contract for the new
 	// contract. This method is used when after a contract has been fully
@@ -90,7 +91,7 @@ type ArbitratorLog interface {
 
 	// FetchContractResolutions fetches the set of previously stored
 	// contract resolutions from persistent storage.
-	FetchContractResolutions() (*ContractResolutions, error)
+	FetchContractResolutions(tx kvdb.RTx) (*ContractResolutions, error)
 
 	// InsertConfirmedCommitSet stores the known set of active HTLCs at the
 	// time channel closure. We'll use this to reconstruct our set of chain
@@ -460,88 +461,121 @@ func (b *boltArbitratorLog) currentState(tx kvdb.RTx) (ArbitratorState, error) {
 // CommitState persists, the current state of the chain attendant.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) CommitState(s ArbitratorState) error {
-	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
-		scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
-		if err != nil {
-			return err
-		}
+func (b *boltArbitratorLog) CommitState(tx kvdb.RwTx, s ArbitratorState) error {
+	if tx != nil {
+		return b.commitState(tx, s)
+	}
 
-		return scopeBucket.Put(stateKey[:], []byte{uint8(s)})
+	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
+		return b.commitState(tx, s)
 	})
+}
+
+func (b *boltArbitratorLog) commitState(tx kvdb.RwTx, s ArbitratorState) error {
+	scopeBucket, err := tx.CreateTopLevelBucket(b.scopeKey[:])
+	if err != nil {
+		return err
+	}
+
+	return scopeBucket.Put(stateKey, []byte{uint8(s)})
 }
 
 // FetchUnresolvedContracts returns all unresolved contracts that have been
 // previously written to the log.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, error) {
+func (b *boltArbitratorLog) FetchUnresolvedContracts(tx kvdb.RTx) (
+	[]ContractResolver, error) {
+
+	var (
+		err       error
+		contracts []ContractResolver
+	)
+
+	if tx != nil {
+		contracts, err = b.fetchUnresolvedContracts(tx)
+	} else {
+		err = kvdb.View(b.db, func(tx kvdb.RTx) error {
+			contracts, err = b.fetchUnresolvedContracts(tx)
+			return err
+		})
+	}
+
+	if err != nil && err != errScopeBucketNoExist && err != errNoContracts {
+		return nil, err
+	}
+
+	return contracts, nil
+}
+
+func (b *boltArbitratorLog) fetchUnresolvedContracts(tx kvdb.RTx) (
+	[]ContractResolver, error) {
+
 	resolverCfg := ResolverConfig{
 		ChannelArbitratorConfig: b.cfg,
 		Checkpoint:              b.checkpointContract,
 	}
+
 	var contracts []ContractResolver
-	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		contractBucket, err := fetchContractReadBucket(tx, b.scopeKey[:])
+
+	contractBucket, err := fetchContractReadBucket(tx, b.scopeKey[:])
+	if err != nil {
+		return nil, err
+	}
+
+	if err := contractBucket.ForEach(func(resKey, resBytes []byte) error {
+		if len(resKey) != resolverIDLen {
+			return nil
+		}
+
+		var res ContractResolver
+
+		// We'll snip off the first byte of the raw resolver
+		// bytes in order to extract what type of resolver
+		// we're about to encode.
+		resType := resolverType(resBytes[0])
+
+		// Then we'll create a reader using the remaining
+		// bytes.
+		resReader := bytes.NewReader(resBytes[1:])
+
+		switch resType {
+		case resolverTimeout:
+			res, err = newTimeoutResolverFromReader(
+				resReader, resolverCfg,
+			)
+
+		case resolverSuccess:
+			res, err = newSuccessResolverFromReader(
+				resReader, resolverCfg,
+			)
+
+		case resolverOutgoingContest:
+			res, err = newOutgoingContestResolverFromReader(
+				resReader, resolverCfg,
+			)
+
+		case resolverIncomingContest:
+			res, err = newIncomingContestResolverFromReader(
+				resReader, resolverCfg,
+			)
+
+		case resolverUnilateralSweep:
+			res, err = newCommitSweepResolverFromReader(
+				resReader, resolverCfg,
+			)
+
+		default:
+			return fmt.Errorf("unknown resolver type: %v", resType)
+		}
+
 		if err != nil {
 			return err
 		}
 
-		return contractBucket.ForEach(func(resKey, resBytes []byte) error {
-			if len(resKey) != resolverIDLen {
-				return nil
-			}
-
-			var res ContractResolver
-
-			// We'll snip off the first byte of the raw resolver
-			// bytes in order to extract what type of resolver
-			// we're about to encode.
-			resType := resolverType(resBytes[0])
-
-			// Then we'll create a reader using the remaining
-			// bytes.
-			resReader := bytes.NewReader(resBytes[1:])
-
-			switch resType {
-			case resolverTimeout:
-				res, err = newTimeoutResolverFromReader(
-					resReader, resolverCfg,
-				)
-
-			case resolverSuccess:
-				res, err = newSuccessResolverFromReader(
-					resReader, resolverCfg,
-				)
-
-			case resolverOutgoingContest:
-				res, err = newOutgoingContestResolverFromReader(
-					resReader, resolverCfg,
-				)
-
-			case resolverIncomingContest:
-				res, err = newIncomingContestResolverFromReader(
-					resReader, resolverCfg,
-				)
-
-			case resolverUnilateralSweep:
-				res, err = newCommitSweepResolverFromReader(
-					resReader, resolverCfg,
-				)
-
-			default:
-				return fmt.Errorf("unknown resolver type: %v", resType)
-			}
-
-			if err != nil {
-				return err
-			}
-
-			contracts = append(contracts, res)
-			return nil
-		})
-	})
-	if err != nil && err != errScopeBucketNoExist && err != errNoContracts {
+		contracts = append(contracts, res)
+		return nil
+	}); err != nil {
 		return nil, err
 	}
 
@@ -553,32 +587,42 @@ func (b *boltArbitratorLog) FetchUnresolvedContracts() ([]ContractResolver, erro
 // swapped out, or resolved.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) InsertUnresolvedContracts(reports []*channeldb.ResolverReport,
-	resolvers ...ContractResolver) error {
+func (b *boltArbitratorLog) InsertUnresolvedContracts(tx kvdb.RwTx,
+	reports []*channeldb.ResolverReport, resolvers ...ContractResolver) error {
+
+	if tx != nil {
+		return b.insertUnresolvedContracts(tx, reports, resolvers...)
+	}
 
 	return kvdb.Batch(b.db, func(tx kvdb.RwTx) error {
-		contractBucket, err := fetchContractWriteBucket(tx, b.scopeKey[:])
+		return b.insertUnresolvedContracts(tx, reports, resolvers...)
+	})
+}
+
+func (b *boltArbitratorLog) insertUnresolvedContracts(tx kvdb.RwTx,
+	reports []*channeldb.ResolverReport, resolvers ...ContractResolver) error {
+
+	contractBucket, err := fetchContractWriteBucket(tx, b.scopeKey[:])
+	if err != nil {
+		return err
+	}
+
+	for _, resolver := range resolvers {
+		err = b.writeResolver(contractBucket, resolver)
 		if err != nil {
 			return err
 		}
+	}
 
-		for _, resolver := range resolvers {
-			err = b.writeResolver(contractBucket, resolver)
-			if err != nil {
-				return err
-			}
+	// Persist any reports that are present.
+	for _, report := range reports {
+		err := b.cfg.PutResolverReport(tx, report)
+		if err != nil {
+			return err
 		}
+	}
 
-		// Persist any reports that are present.
-		for _, report := range reports {
-			err := b.cfg.PutResolverReport(tx, report)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
-	})
+	return nil
 }
 
 // SwapContract performs an atomic swap of the old contract for the new
@@ -703,97 +747,113 @@ func (b *boltArbitratorLog) LogContractResolutions(c *ContractResolutions) error
 // resolutions from persistent storage.
 //
 // NOTE: Part of the ContractResolver interface.
-func (b *boltArbitratorLog) FetchContractResolutions() (*ContractResolutions, error) {
-	c := &ContractResolutions{}
+func (b *boltArbitratorLog) FetchContractResolutions(tx kvdb.RTx) (
+	*ContractResolutions, error) {
+
+	if tx != nil {
+		return b.fetchContractResolutions(tx)
+	}
+
+	var contracts *ContractResolutions
 	err := kvdb.View(b.db, func(tx kvdb.RTx) error {
-		scopeBucket := tx.ReadBucket(b.scopeKey[:])
-		if scopeBucket == nil {
-			return errScopeBucketNoExist
-		}
-
-		resolutionBytes := scopeBucket.Get(resolutionsKey)
-		if resolutionBytes == nil {
-			return errNoResolutions
-		}
-
-		resReader := bytes.NewReader(resolutionBytes)
-
-		_, err := io.ReadFull(resReader, c.CommitHash[:])
-		if err != nil {
-			return err
-		}
-
-		// First, we'll attempt to read out the commit resolution (if
-		// it exists).
-		var haveCommitRes bool
-		err = binary.Read(resReader, endian, &haveCommitRes)
-		if err != nil {
-			return err
-		}
-		if haveCommitRes {
-			c.CommitResolution = &lnwallet.CommitOutputResolution{}
-			err = decodeCommitResolution(
-				resReader, c.CommitResolution,
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		var (
-			numIncoming uint32
-			numOutgoing uint32
-		)
-
-		// Next, we'll read out the incoming and outgoing HTLC
-		// resolutions.
-		err = binary.Read(resReader, endian, &numIncoming)
-		if err != nil {
-			return err
-		}
-		c.HtlcResolutions.IncomingHTLCs = make([]lnwallet.IncomingHtlcResolution, numIncoming)
-		for i := uint32(0); i < numIncoming; i++ {
-			err := decodeIncomingResolution(
-				resReader, &c.HtlcResolutions.IncomingHTLCs[i],
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		err = binary.Read(resReader, endian, &numOutgoing)
-		if err != nil {
-			return err
-		}
-		c.HtlcResolutions.OutgoingHTLCs = make([]lnwallet.OutgoingHtlcResolution, numOutgoing)
-		for i := uint32(0); i < numOutgoing; i++ {
-			err := decodeOutgoingResolution(
-				resReader, &c.HtlcResolutions.OutgoingHTLCs[i],
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		anchorResBytes := scopeBucket.Get(anchorResolutionKey)
-		if anchorResBytes != nil {
-			c.AnchorResolution = &lnwallet.AnchorResolution{}
-			resReader := bytes.NewReader(anchorResBytes)
-			err := decodeAnchorResolution(
-				resReader, c.AnchorResolution,
-			)
-			if err != nil {
-				return err
-			}
-		}
-
-		return nil
+		var err error
+		contracts, err = b.fetchContractResolutions(tx)
+		return err
 	})
 	if err != nil {
 		return nil, err
 	}
 
-	return c, err
+	return contracts, err
+}
+
+func (b *boltArbitratorLog) fetchContractResolutions(tx kvdb.RTx) (
+	*ContractResolutions, error) {
+
+	c := &ContractResolutions{}
+
+	scopeBucket := tx.ReadBucket(b.scopeKey[:])
+	if scopeBucket == nil {
+		return nil, errScopeBucketNoExist
+	}
+
+	resolutionBytes := scopeBucket.Get(resolutionsKey)
+	if resolutionBytes == nil {
+		return nil, errNoResolutions
+	}
+
+	resReader := bytes.NewReader(resolutionBytes)
+
+	_, err := io.ReadFull(resReader, c.CommitHash[:])
+	if err != nil {
+		return nil, err
+	}
+
+	// First, we'll attempt to read out the commit resolution (if
+	// it exists).
+	var haveCommitRes bool
+	err = binary.Read(resReader, endian, &haveCommitRes)
+	if err != nil {
+		return nil, err
+	}
+	if haveCommitRes {
+		c.CommitResolution = &lnwallet.CommitOutputResolution{}
+		err = decodeCommitResolution(
+			resReader, c.CommitResolution,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var (
+		numIncoming uint32
+		numOutgoing uint32
+	)
+
+	// Next, we'll read out the incoming and outgoing HTLC
+	// resolutions.
+	err = binary.Read(resReader, endian, &numIncoming)
+	if err != nil {
+		return nil, err
+	}
+	c.HtlcResolutions.IncomingHTLCs = make([]lnwallet.IncomingHtlcResolution, numIncoming)
+	for i := uint32(0); i < numIncoming; i++ {
+		err := decodeIncomingResolution(
+			resReader, &c.HtlcResolutions.IncomingHTLCs[i],
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err = binary.Read(resReader, endian, &numOutgoing)
+	if err != nil {
+		return nil, err
+	}
+	c.HtlcResolutions.OutgoingHTLCs = make([]lnwallet.OutgoingHtlcResolution, numOutgoing)
+	for i := uint32(0); i < numOutgoing; i++ {
+		err := decodeOutgoingResolution(
+			resReader, &c.HtlcResolutions.OutgoingHTLCs[i],
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	anchorResBytes := scopeBucket.Get(anchorResolutionKey)
+	if anchorResBytes != nil {
+		c.AnchorResolution = &lnwallet.AnchorResolution{}
+		resReader := bytes.NewReader(anchorResBytes)
+		err := decodeAnchorResolution(
+			resReader, c.AnchorResolution,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return c, nil
 }
 
 // FetchChainActions attempts to fetch the set of previously stored chain

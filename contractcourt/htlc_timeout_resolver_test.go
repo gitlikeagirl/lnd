@@ -40,7 +40,7 @@ func (m *mockWitnessBeacon) SubscribeUpdates() *WitnessSubscription {
 	}
 }
 
-func (m *mockWitnessBeacon) LookupPreimage(payhash lntypes.Hash) (lntypes.Preimage, bool) {
+func (m *mockWitnessBeacon) LookupPreimage(_ kvdb.RTx, payhash lntypes.Hash) (lntypes.Preimage, bool) {
 	preimage, ok := m.lookupPreimage[payhash]
 	if !ok {
 		return lntypes.Preimage{}, false

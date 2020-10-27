@@ -20,6 +20,7 @@ import (
 	sphinx "github.com/lightningnetwork/lightning-onion"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
@@ -43,7 +44,7 @@ func newMockPreimageCache() *mockPreimageCache {
 	}
 }
 
-func (m *mockPreimageCache) LookupPreimage(
+func (m *mockPreimageCache) LookupPreimage(_ kvdb.RTx,
 	hash lntypes.Hash) (lntypes.Preimage, bool) {
 
 	m.Lock()

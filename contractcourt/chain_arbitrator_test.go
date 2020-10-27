@@ -66,7 +66,7 @@ func TestChainArbitratorRepublishCloses(t *testing.T) {
 	for i := 0; i < numChans/2; i++ {
 		closeTx := channels[i].FundingTxn.Copy()
 		closeTx.TxIn[0].PreviousOutPoint = channels[i].FundingOutpoint
-		err := channels[i].MarkCommitmentBroadcasted(closeTx, true)
+		err := channels[i].MarkCommitmentBroadcasted(nil, closeTx, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -213,7 +213,7 @@ func TestResolveContract(t *testing.T) {
 	// With the channel removed, we'll now manually call ResolveContract.
 	// This stimulates needing to remove a channel from the chain arb due
 	// to any possible external consistency issues.
-	err = chainArb.ResolveContract(channel.FundingOutpoint)
+	err = chainArb.ResolveContract(nil, channel.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("unable to resolve contract: %v", err)
 	}
@@ -231,7 +231,7 @@ func TestResolveContract(t *testing.T) {
 
 	// At this point, the channel's arbitrator log should also be empty as
 	// well.
-	_, err = channelArb.log.FetchContractResolutions()
+	_, err = channelArb.log.FetchContractResolutions(nil)
 	if err != errScopeBucketNoExist {
 		t.Fatalf("channel arb log state should have been "+
 			"removed: %v", err)
@@ -239,7 +239,7 @@ func TestResolveContract(t *testing.T) {
 
 	// If we attempt to call this method again, then we should get a nil
 	// error, as there is no more state to be cleaned up.
-	err = chainArb.ResolveContract(channel.FundingOutpoint)
+	err = chainArb.ResolveContract(nil, channel.FundingOutpoint)
 	if err != nil {
 		t.Fatalf("second resolve call shouldn't fail: %v", err)
 	}

@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 )
 
 // LiveChannelSource is an interface that allows us to query for the set of
@@ -18,7 +19,8 @@ type LiveChannelSource interface {
 
 	// FetchChannel attempts to locate a live channel identified by the
 	// passed chanPoint.
-	FetchChannel(chanPoint wire.OutPoint) (*channeldb.OpenChannel, error)
+	FetchChannel(tx kvdb.RTx,
+		chanPoint wire.OutPoint) (*channeldb.OpenChannel, error)
 
 	// AddrsForNode returns all known addresses for the target node public
 	// key.
@@ -55,7 +57,7 @@ func FetchBackupForChan(chanPoint wire.OutPoint,
 
 	// First, we'll query the channel source to see if the channel is known
 	// and open within the database.
-	targetChan, err := chanSource.FetchChannel(chanPoint)
+	targetChan, err := chanSource.FetchChannel(nil, chanPoint)
 	if err != nil {
 		// If we can't find the channel, then we return with an error,
 		// as we have nothing to  backup.

@@ -4,6 +4,7 @@ import (
 	"sync"
 
 	"github.com/lightningnetwork/lnd/channeldb"
+	"github.com/lightningnetwork/lnd/channeldb/kvdb"
 	"github.com/lightningnetwork/lnd/contractcourt"
 	"github.com/lightningnetwork/lnd/lntypes"
 )
@@ -62,14 +63,14 @@ func (p *preimageBeacon) SubscribeUpdates() *contractcourt.WitnessSubscription {
 
 // LookupPreImage attempts to lookup a preimage in the global cache.  True is
 // returned for the second argument if the preimage is found.
-func (p *preimageBeacon) LookupPreimage(
+func (p *preimageBeacon) LookupPreimage(tx kvdb.RTx,
 	payHash lntypes.Hash) (lntypes.Preimage, bool) {
 
 	p.RLock()
 	defer p.RUnlock()
 
 	// Otherwise, we'll perform a final check using the witness cache.
-	preimage, err := p.wCache.LookupSha256Witness(payHash)
+	preimage, err := p.wCache.LookupSha256Witness(tx, payHash)
 	if err != nil {
 		ltndLog.Errorf("Unable to lookup witness: %v", err)
 		return lntypes.Preimage{}, false

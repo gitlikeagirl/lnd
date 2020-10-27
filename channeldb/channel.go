@@ -699,7 +699,7 @@ func (c *OpenChannel) ApplyChanStatus(status ChannelStatus) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(status)
+	return c.putChanStatus(nil, status)
 }
 
 // ClearChanStatus allows the caller to clear a particular channel status from
@@ -920,7 +920,7 @@ func (c *OpenChannel) MarkDataLoss(commitPoint *btcec.PublicKey) error {
 		return chanBucket.Put(dataLossCommitPointKey, b.Bytes())
 	}
 
-	return c.putChanStatus(ChanStatusLocalDataLoss, putCommitPoint)
+	return c.putChanStatus(nil, ChanStatusLocalDataLoss, putCommitPoint)
 }
 
 // DataLossCommitPoint retrieves the stored commit point set during
@@ -961,11 +961,11 @@ func (c *OpenChannel) DataLossCommitPoint() (*btcec.PublicKey, error) {
 // MarkBorked marks the event when the channel as reached an irreconcilable
 // state, such as a channel breach or state desynchronization. Borked channels
 // should never be added to the switch.
-func (c *OpenChannel) MarkBorked() error {
+func (c *OpenChannel) MarkBorked(tx kvdb.RwTx) error {
 	c.Lock()
 	defer c.Unlock()
 
-	return c.putChanStatus(ChanStatusBorked)
+	return c.putChanStatus(tx, ChanStatusBorked)
 }
 
 // ChanSyncMsg returns the ChannelReestablish message that should be sent upon
@@ -1072,11 +1072,11 @@ func (c *OpenChannel) isBorked(chanBucket kvdb.RBucket) (bool, error) {
 // closing tx _we believe_ will appear in the chain. This is only used to
 // republish this tx at startup to ensure propagation, and we should still
 // handle the case where a different tx actually hits the chain.
-func (c *OpenChannel) MarkCommitmentBroadcasted(closeTx *wire.MsgTx,
-	locallyInitiated bool) error {
+func (c *OpenChannel) MarkCommitmentBroadcasted(tx kvdb.RwTx,
+	closeTx *wire.MsgTx, locallyInitiated bool) error {
 
 	return c.markBroadcasted(
-		ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
+		tx, ChanStatusCommitBroadcasted, forceCloseTxKey, closeTx,
 		locallyInitiated,
 	)
 }
@@ -1092,7 +1092,7 @@ func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
 	locallyInitiated bool) error {
 
 	return c.markBroadcasted(
-		ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
+		nil, ChanStatusCoopBroadcasted, coopCloseTxKey, closeTx,
 		locallyInitiated,
 	)
 }
@@ -1101,8 +1101,8 @@ func (c *OpenChannel) MarkCoopBroadcasted(closeTx *wire.MsgTx,
 // receiving channel and inserts a close transaction under the requested key,
 // which should specify either a coop or force close. It adds a status which
 // indicates the party that initiated the channel close.
-func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
-	closeTx *wire.MsgTx, locallyInitiated bool) error {
+func (c *OpenChannel) markBroadcasted(tx kvdb.RwTx, status ChannelStatus,
+	key []byte, closeTx *wire.MsgTx, locallyInitiated bool) error {
 
 	c.Lock()
 	defer c.Unlock()
@@ -1130,7 +1130,7 @@ func (c *OpenChannel) markBroadcasted(status ChannelStatus, key []byte,
 		status |= ChanStatusRemoteCloseInitiator
 	}
 
-	return c.putChanStatus(status, putClosingTx)
+	return c.putChanStatus(tx, status, putClosingTx)
 }
 
 // BroadcastedCommitment retrieves the stored unilateral closing tx set during
@@ -1179,48 +1179,60 @@ func (c *OpenChannel) getClosingTx(key []byte) (*wire.MsgTx, error) {
 // putChanStatus appends the given status to the channel. fs is an optional
 // list of closures that are given the chanBucket in order to atomically add
 // extra information together with the new status.
-func (c *OpenChannel) putChanStatus(status ChannelStatus,
+func (c *OpenChannel) putChanStatus(tx kvdb.RwTx, status ChannelStatus,
 	fs ...func(kvdb.RwBucket) error) error {
 
-	if err := kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
-		chanBucket, err := fetchChanBucketRw(
-			tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
-		)
-		if err != nil {
-			return err
-		}
-
-		channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
-		if err != nil {
-			return err
-		}
-
-		// Add this status to the existing bitvector found in the DB.
-		status = channel.chanStatus | status
-		channel.chanStatus = status
-
-		if err := putOpenChannel(chanBucket, channel); err != nil {
-			return err
-		}
-
-		for _, f := range fs {
-			// Skip execution of nil closures.
-			if f == nil {
-				continue
-			}
-
-			if err := f(chanBucket); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}); err != nil {
+	var err error
+	if tx != nil {
+		err = c.putStatusInTx(tx, status, fs...)
+	} else {
+		err = kvdb.Update(c.Db, func(tx kvdb.RwTx) error {
+			return c.putStatusInTx(tx, status, fs...)
+		})
+	}
+	if err != nil {
 		return err
 	}
 
 	// Update the in-memory representation to keep it in sync with the DB.
 	c.chanStatus = status
+
+	return nil
+}
+
+func (c *OpenChannel) putStatusInTx(tx kvdb.RwTx, status ChannelStatus,
+	fs ...func(kvdb.RwBucket) error) error {
+
+	chanBucket, err := fetchChanBucketRw(
+		tx, c.IdentityPub, &c.FundingOutpoint, c.ChainHash,
+	)
+	if err != nil {
+		return err
+	}
+
+	channel, err := fetchOpenChannel(chanBucket, &c.FundingOutpoint)
+	if err != nil {
+		return err
+	}
+
+	// Add this status to the existing bitvector found in the DB.
+	status = channel.chanStatus | status
+	channel.chanStatus = status
+
+	if err := putOpenChannel(chanBucket, channel); err != nil {
+		return err
+	}
+
+	for _, f := range fs {
+		// Skip execution of nil closures.
+		if f == nil {
+			continue
+		}
+
+		if err := f(chanBucket); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }

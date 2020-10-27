@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
@@ -18,6 +19,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// errNoSequenceNrIndex is returned when an attempt to lookup a payment
+// index is made for a sequence number that is not indexed.
+var errNoSequenceNrIndex = errors.New("payment sequence number index " +
+	"does not exist")
 
 func genPreimage() ([32]byte, error) {
 	var preimage [32]byte

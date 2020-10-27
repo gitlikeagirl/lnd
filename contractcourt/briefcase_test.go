@@ -340,7 +340,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 
 	// Now, we'll insert the resolver into the log, we do not need to apply
 	// any closures, so we will pass in nil.
-	err = testLog.InsertUnresolvedContracts(nil, resolvers...)
+	err = testLog.InsertUnresolvedContracts(nil, nil, resolvers...)
 	if err != nil {
 		t.Fatalf("unable to insert resolvers: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	// With the resolvers inserted, we'll now attempt to retrieve them from
 	// the database, so we can compare them to the versions we created
 	// above.
-	diskResolvers, err := testLog.FetchUnresolvedContracts()
+	diskResolvers, err := testLog.FetchUnresolvedContracts(nil)
 	if err != nil {
 		t.Fatalf("unable to retrieve resolvers: %v", err)
 	}
@@ -377,7 +377,7 @@ func TestContractInsertionRetrieval(t *testing.T) {
 	if err := testLog.WipeHistory(); err != nil {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
-	diskResolvers, err = testLog.FetchUnresolvedContracts()
+	diskResolvers, err = testLog.FetchUnresolvedContracts(nil)
 	if err != nil {
 		t.Fatalf("unable to fetch unresolved contracts: %v", err)
 	}
@@ -423,11 +423,11 @@ func TestContractResolution(t *testing.T) {
 	// First, we'll insert the resolver into the database and ensure that
 	// we get the same resolver out the other side. We do not need to apply
 	// any closures.
-	err = testLog.InsertUnresolvedContracts(nil, timeoutResolver)
+	err = testLog.InsertUnresolvedContracts(nil, nil, timeoutResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
-	dbContracts, err := testLog.FetchUnresolvedContracts()
+	dbContracts, err := testLog.FetchUnresolvedContracts(nil)
 	if err != nil {
 		t.Fatalf("unable to fetch contracts from db: %v", err)
 	}
@@ -439,7 +439,7 @@ func TestContractResolution(t *testing.T) {
 	}
 
 	// At this point, no contracts should exist within the log.
-	dbContracts, err = testLog.FetchUnresolvedContracts()
+	dbContracts, err = testLog.FetchUnresolvedContracts(nil)
 	if err != nil {
 		t.Fatalf("unable to fetch contracts from db: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestContractSwapping(t *testing.T) {
 
 	// We'll first insert the contest resolver into the log with no
 	// additional updates.
-	err = testLog.InsertUnresolvedContracts(nil, contestResolver)
+	err = testLog.InsertUnresolvedContracts(nil, nil, contestResolver)
 	if err != nil {
 		t.Fatalf("unable to insert contract into db: %v", err)
 	}
@@ -501,7 +501,7 @@ func TestContractSwapping(t *testing.T) {
 
 	// At this point, there should now only be a single contract in the
 	// database.
-	dbContracts, err := testLog.FetchUnresolvedContracts()
+	dbContracts, err := testLog.FetchUnresolvedContracts(nil)
 	if err != nil {
 		t.Fatalf("unable to fetch contracts from db: %v", err)
 	}
@@ -566,7 +566,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 
 	// First make sure that fetching unlogged contract resolutions will
 	// fail.
-	_, err = testLog.FetchContractResolutions()
+	_, err = testLog.FetchContractResolutions(nil)
 	if err == nil {
 		t.Fatalf("expected reading unlogged resolution from db to fail")
 	}
@@ -576,7 +576,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 	if err := testLog.LogContractResolutions(&res); err != nil {
 		t.Fatalf("unable to insert resolutions into db: %v", err)
 	}
-	diskRes, err := testLog.FetchContractResolutions()
+	diskRes, err := testLog.FetchContractResolutions(nil)
 	if err != nil {
 		t.Fatalf("unable to read resolution from db: %v", err)
 	}
@@ -591,7 +591,7 @@ func TestContractResolutionsStorage(t *testing.T) {
 	if err := testLog.WipeHistory(); err != nil {
 		t.Fatalf("unable to wipe log: %v", err)
 	}
-	_, err = testLog.FetchContractResolutions()
+	_, err = testLog.FetchContractResolutions(nil)
 	if err != errScopeBucketNoExist {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -622,7 +622,7 @@ func TestStateMutation(t *testing.T) {
 
 	// We should now be able to mutate the state to an arbitrary one of our
 	// choosing, then read that same state back from disk.
-	if err := testLog.CommitState(StateFullyResolved); err != nil {
+	if err := testLog.CommitState(nil, StateFullyResolved); err != nil {
 		t.Fatalf("unable to write state: %v", err)
 	}
 	arbState, err = testLog.CurrentState(nil)
@@ -678,10 +678,10 @@ func TestScopeIsolation(t *testing.T) {
 
 	// We'll now update the current state of both the logs to a unique
 	// state.
-	if err := testLog1.CommitState(StateWaitingFullResolution); err != nil {
+	if err := testLog1.CommitState(nil, StateWaitingFullResolution); err != nil {
 		t.Fatalf("unable to write state: %v", err)
 	}
-	if err := testLog2.CommitState(StateContractClosed); err != nil {
+	if err := testLog2.CommitState(nil, StateContractClosed); err != nil {
 		t.Fatalf("unable to write state: %v", err)
 	}
 

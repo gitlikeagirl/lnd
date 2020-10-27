@@ -237,7 +237,7 @@ type arbChannel struct {
 // commitment transactions.
 //
 // NOTE: Part of the ArbChannel interface.
-func (a *arbChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
+func (a *arbChannel) NewAnchorResolutions(tx kvdb.RTx) ([]*lnwallet.AnchorResolution,
 	error) {
 
 	// Get a fresh copy of the database state to base the anchor resolutions
@@ -245,7 +245,7 @@ func (a *arbChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
 	// same instance that is used by the link.
 	chanPoint := a.channel.FundingOutpoint
 
-	channel, err := a.c.chanSource.FetchChannel(chanPoint)
+	channel, err := a.c.chanSource.FetchChannel(tx, chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -267,11 +267,11 @@ func (a *arbChannel) NewAnchorResolutions() ([]*lnwallet.AnchorResolution,
 // needed to eventually resolve all outputs on chain.
 //
 // NOTE: Part of the ArbChannel interface.
-func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) {
+func (a *arbChannel) ForceCloseChan(tx kvdb.RwTx) (*lnwallet.LocalForceCloseSummary, error) {
 	// First, we mark the channel as borked, this ensure
 	// that no new state transitions can happen, and also
 	// that the link won't be loaded into the switch.
-	if err := a.channel.MarkBorked(); err != nil {
+	if err := a.channel.MarkBorked(tx); err != nil {
 		return nil, err
 	}
 
@@ -288,7 +288,7 @@ func (a *arbChannel) ForceCloseChan() (*lnwallet.LocalForceCloseSummary, error) 
 	// Now that we know the link can't mutate the channel
 	// state, we'll read the channel from disk the target
 	// channel according to its channel point.
-	channel, err := a.c.chanSource.FetchChannel(chanPoint)
+	channel, err := a.c.chanSource.FetchChannel(tx, chanPoint)
 	if err != nil {
 		return nil, err
 	}
@@ -361,8 +361,8 @@ func newActiveChannelArbitrator(channel *channeldb.OpenChannel,
 		return nil, err
 	}
 
-	arbCfg.MarkChannelResolved = func() error {
-		return c.ResolveContract(chanPoint)
+	arbCfg.MarkChannelResolved = func(tx kvdb.RwTx) error {
+		return c.ResolveContract(tx, chanPoint)
 	}
 
 	// Finally, we'll need to construct a series of htlc Sets based on all
@@ -399,7 +399,7 @@ func (c *ChainArbitrator) getArbChannel(
 // ResolveContract marks a contract as fully resolved within the database.
 // This is only to be done once all contracts which were live on the channel
 // before hitting the chain have been resolved.
-func (c *ChainArbitrator) ResolveContract(chanPoint wire.OutPoint) error {
+func (c *ChainArbitrator) ResolveContract(tx kvdb.RwTx, chanPoint wire.OutPoint) error {
 
 	log.Infof("Marking ChannelPoint(%v) fully resolved", chanPoint)
 
@@ -563,8 +563,8 @@ func (c *ChainArbitrator) Start() error {
 			blockEpoch.Cancel()
 			return err
 		}
-		arbCfg.MarkChannelResolved = func() error {
-			return c.ResolveContract(chanPoint)
+		arbCfg.MarkChannelResolved = func(tx kvdb.RwTx) error {
+			return c.ResolveContract(tx, chanPoint)
 		}
 
 		// We can also leave off the set of HTLC's here as since the
