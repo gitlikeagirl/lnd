@@ -375,10 +375,26 @@ func NewChannelArbitrator(cfg ChannelArbitratorConfig,
 	}
 }
 
-// Start starts all the goroutines that the ChannelArbitrator needs to operate.
+type arbitratorStartState struct {
+	trigger       transitionTrigger
+	triggerHeight uint32
+	bestHeight    int32
+	commitSet     *CommitSet
+}
+
 func (c *ChannelArbitrator) Start(tx kvdb.RTx) error {
+	startState, err := c.prepChanArb(tx)
+	if err != nil {
+		return err
+	}
+
+	return c.start(startState)
+}
+
+// prepChanArb
+func (c *ChannelArbitrator) prepChanArb(tx kvdb.RTx) (*arbitratorStartState, error) {
 	if !atomic.CompareAndSwapInt32(&c.started, 0, 1) {
-		return nil
+		return nil, nil
 	}
 	c.startTimestamp = c.cfg.Clock.Now()
 
@@ -396,12 +412,12 @@ func (c *ChannelArbitrator) Start(tx kvdb.RTx) error {
 	// machine can act accordingly.
 	c.state, err = c.log.CurrentState(tx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	_, bestHeight, err := c.cfg.ChainIO.GetBestBlock()
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	// If the channel has been marked pending close in the database, and we
@@ -452,14 +468,24 @@ func (c *ChannelArbitrator) Start(tx kvdb.RTx) error {
 	// logged any actions in the log, then this field won't be present.
 	commitSet, err := c.log.FetchConfirmedCommitSet(tx)
 	if err != nil && err != errNoCommitSet && err != errScopeBucketNoExist {
-		return err
+		return nil, err
 	}
 
+	return &arbitratorStartState{
+		trigger:       trigger,
+		triggerHeight: triggerHeight,
+		bestHeight:    bestHeight,
+		commitSet:     commitSet,
+	}, nil
+}
+
+// Start starts all the goroutines that the ChannelArbitrator needs to operate.
+func (c *ChannelArbitrator) start(startState *arbitratorStartState) error {
 	// We'll now attempt to advance our state forward based on the current
 	// on-chain state, and our set of active contracts.
 	startingState := c.state
 	nextState, _, err := c.advanceState(
-		triggerHeight, trigger, commitSet,
+		startState.triggerHeight, startState.trigger, startState.commitSet,
 	)
 	if err != nil {
 		switch err {
@@ -496,13 +522,15 @@ func (c *ChannelArbitrator) Start(tx kvdb.RTx) error {
 		// receive a chain event from the chain watcher than the
 		// commitment has been confirmed on chain, and before we
 		// advance our state step, we call InsertConfirmedCommitSet.
-		if err := c.relaunchResolvers(commitSet, triggerHeight); err != nil {
+		if err := c.relaunchResolvers(
+			startState.commitSet, startState.triggerHeight,
+		); err != nil {
 			return err
 		}
 	}
 
 	c.wg.Add(1)
-	go c.channelAttendant(bestHeight)
+	go c.channelAttendant(startState.bestHeight)
 	return nil
 }
 

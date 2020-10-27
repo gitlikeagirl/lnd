@@ -631,9 +631,11 @@ func (c *ChainArbitrator) Start() error {
 
 	// Launch all the goroutines for each arbitrator so they can carry out
 	// their duties.
+	startStates := make(map[wire.OutPoint]*arbitratorStartState)
 	for _, arbitrator := range c.activeChannels {
 		log.Infof("CKC chainarb starting: %v", arbitrator.cfg.ChanPoint)
-		if err := arbitrator.Start(tx); err != nil {
+		state, err := arbitrator.prepChanArb(tx)
+		if err != nil {
 			if stopErr := c.Stop(); stopErr != nil {
 				log.Errorf("chain arb stop error: %v", err)
 			}
@@ -645,6 +647,7 @@ func (c *ChainArbitrator) Start() error {
 
 			return err
 		}
+		startStates[arbitrator.cfg.ChanPoint] = state
 		log.Infof("CKC chainarb started: %v", arbitrator.cfg.ChanPoint)
 	}
 
@@ -660,6 +663,18 @@ func (c *ChainArbitrator) Start() error {
 	}
 
 	log.Info("CKC chainarb read tx rolled back")
+
+	// Now that we have progressed all of our arbitrators through to
+	// our start state, we kick them off.
+	for arb, startState := range startStates {
+		if err := c.activeChannels[arb].start(startState); err != nil {
+			if stopErr := c.Stop(); stopErr != nil {
+				log.Errorf("chain arb stop error: %v", err)
+			}
+
+			return err
+		}
+	}
 
 	// Subscribe to a single stream of block epoch notifications that we
 	// will dispatch to all active arbitrators.
