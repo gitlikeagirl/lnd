@@ -630,7 +630,7 @@ func (c *ChainArbitrator) Start() error {
 	// Finally, we'll launch all the goroutines for each arbitrator so they
 	// can carry out their duties.
 	for _, arbitrator := range c.activeChannels {
-		if err := arbitrator.Start(); err != nil {
+		if err := arbitrator.Start(nil); err != nil {
 			c.Stop()
 			return err
 		}
@@ -970,7 +970,7 @@ func (c *ChainArbitrator) WatchNewChannel(newChan *channeldb.OpenChannel) error 
 	// arbitrators, then launch it.
 	c.activeChannels[chanPoint] = channelArb
 
-	if err := channelArb.Start(); err != nil {
+	if err := channelArb.Start(nil); err != nil {
 		return err
 	}
 
