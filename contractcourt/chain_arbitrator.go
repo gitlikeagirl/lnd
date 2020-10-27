@@ -684,6 +684,9 @@ func (c *ChainArbitrator) dispatchBlocks(
 		blockEpoch.Cancel()
 
 		recipients := getRecipients()
+		log.Infof("CKC dispatchblocks shutting down: %v "+
+			"channels", len(recipients))
+
 		for _, recipient := range recipients {
 			close(recipient.blocks)
 		}
@@ -695,6 +698,8 @@ func (c *ChainArbitrator) dispatchBlocks(
 		// Consume block epochs, exiting if our subscription is
 		// terminated.
 		case block, ok := <-blockEpoch.Epochs:
+			log.Infof("CKC dispatchblocks received %v", block)
+
 			if !ok {
 				log.Trace("dispatchBlocks block epoch " +
 					"cancelled")
@@ -705,10 +710,16 @@ func (c *ChainArbitrator) dispatchBlocks(
 			// Get the set of currently active channels block
 			// subscription channels and dispatch the block to
 			// each.
-			for _, recipient := range getRecipients() {
+			recipients := getRecipients()
+			log.Infof("CKC dispatchblocks: %v channels",
+				len(recipients))
+
+			for _, recipient := range recipients {
+				log.Infof("CKC dispatchblocks sending %v to %v", block, recipient.chanPoint)
 				select {
 				// Deliver the block to the arbitrator.
 				case recipient.blocks <- block.Height:
+					log.Infof("CKC dispatchblocks sent %v to %v", block, recipient.chanPoint)
 
 				// If the recipient is shutting down, exit
 				// without delivering the block. This may be
@@ -726,6 +737,7 @@ func (c *ChainArbitrator) dispatchBlocks(
 				// need to deliver any more blocks (everything
 				// will be shutting down).
 				case <-c.quit:
+					log.Info("CKC dispatchblocks exiting")
 					return
 				}
 			}
