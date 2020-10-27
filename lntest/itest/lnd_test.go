@@ -14251,19 +14251,44 @@ func TestLightningNetworkDaemon(t *testing.T) {
 		// Start every test with the default static fee estimate.
 		lndHarness.SetFeeEstimate(12500)
 
+		// Start a goroutine which will timeout the test or log that
+		// it is done.
+		done := make(chan struct{})
+
+		go func() {
+			select {
+			case <-time.After(time.Minute * 8):
+				timeoutLog := fmt.Sprintf("TIMEOUT ============ %v ============\n",
+					testCase.name)
+
+				err = lndHarness.Alice.AddToLog(timeoutLog)
+				assert.NoError(t, err)
+
+				err = lndHarness.Bob.AddToLog(timeoutLog)
+				assert.NoError(t, err)
+
+				// Kill our current test with an assert that will
+				// always fail, because we can't use t.Fatalf
+				panic("test timeout")
+
+			case <-done:
+				doneLog := fmt.Sprintf("COMPLETE ============ %v ============\n",
+					testCase.name)
+
+				err = lndHarness.Alice.AddToLog(doneLog)
+				assert.NoError(t, err)
+
+				err = lndHarness.Bob.AddToLog(doneLog)
+				assert.NoError(t, err)
+			}
+		}()
+
 		success := t.Run(testCase.name, func(t1 *testing.T) {
 			ht := newHarnessTest(t1, lndHarness)
 			ht.RunTestCase(testCase)
 		})
 
-		doneLog := fmt.Sprintf("COMPLETE ============ %v ============\n",
-			testCase.name)
-
-		err = lndHarness.Alice.AddToLog(doneLog)
-		assert.NoError(t, err)
-
-		err = lndHarness.Bob.AddToLog(doneLog)
-		assert.NoError(t, err)
+		close(done)
 
 		// Stop at the first failure. Mimic behavior of original test
 		// framework.
