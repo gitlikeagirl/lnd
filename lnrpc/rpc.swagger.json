@@ -5265,6 +5265,9 @@
         }
       }
     },
+    "lnrpcSendErrorResponse": {
+      "type": "object"
+    },
     "lnrpcSendManyRequest": {
       "type": "object",
       "properties": {
