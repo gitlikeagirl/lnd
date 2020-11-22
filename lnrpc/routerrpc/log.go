@@ -3,6 +3,7 @@ package routerrpc
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -15,7 +16,7 @@ const Subsystem = "RRPC"
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger(Subsystem, nil))
+	UseLogger(build.NewSubLogger(Subsystem, signal.Interceptor{}, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

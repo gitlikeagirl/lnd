@@ -195,7 +195,7 @@ type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
-func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
+func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}, interceptor signal.Interceptor) error {
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")
 		err := cfg.LogWriter.Close()
@@ -769,7 +769,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}) error {
 			"start_height=%v", bestHeight)
 
 		for {
-			if !signal.Alive() {
+			if !interceptor.Alive() {
 				return nil
 			}
 

@@ -3,6 +3,7 @@ package channelnotifier
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // log is a logger that is initialized with no output filters.  This means the
@@ -12,7 +13,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("CHNF", nil))
+	UseLogger(build.NewSubLogger("CHNF", signal.Interceptor{}, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled by

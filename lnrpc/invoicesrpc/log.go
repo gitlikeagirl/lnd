@@ -3,6 +3,7 @@ package invoicesrpc
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // log is a logger that is initialized with no output filters.  This means the
@@ -12,7 +13,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("IRPC", nil))
+	UseLogger(build.NewSubLogger("IRPC", signal.Interceptor{}, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled by

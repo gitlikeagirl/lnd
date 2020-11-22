@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // walletLog is a logger that is initialized with no output filters.  This
@@ -17,7 +18,7 @@ var walletLog btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("LNWL", nil))
+	UseLogger(build.NewSubLogger("LNWL", signal.Interceptor{}, nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

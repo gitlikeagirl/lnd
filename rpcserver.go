@@ -67,7 +67,6 @@ import (
 	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/watchtower"
 	"github.com/lightningnetwork/lnd/zpay32"
@@ -5530,8 +5529,7 @@ func (r *rpcServer) GetNetworkInfo(ctx context.Context,
 // a graceful shutdown of the daemon.
 func (r *rpcServer) StopDaemon(ctx context.Context,
 	_ *lnrpc.StopRequest) (*lnrpc.StopResponse, error) {
-
-	signal.RequestShutdown()
+	// signal.RequestShutdown()
 	return &lnrpc.StopResponse{}, nil
 }
 

@@ -66,7 +66,7 @@ var (
 	// are replaced again later, once the final root logger is ready.
 	addLndPkgLogger = func(subsystem string) *replaceableLogger {
 		l := &replaceableLogger{
-			Logger:    build.NewSubLogger(subsystem, nil),
+			Logger:    build.NewSubLogger(subsystem, signal.Interceptor{}, nil),
 			subsystem: subsystem,
 		}
 		lndPkgLoggers = append(lndPkgLoggers, l)
@@ -88,11 +88,11 @@ var (
 )
 
 // SetupLoggers initializes all package-global logger variables.
-func SetupLoggers(root *build.RotatingLogWriter) {
+func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor) {
 	// Now that we have the proper root logger, we can replace the
 	// placeholder lnd package loggers.
 	for _, l := range lndPkgLoggers {
-		l.Logger = build.NewSubLogger(l.subsystem, root.GenSubLogger)
+		l.Logger = build.NewSubLogger(l.subsystem, interceptor, root.GenSubLogger)
 		SetSubLogger(root, l.subsystem, l.Logger)
 	}
 
@@ -141,11 +141,11 @@ func SetupLoggers(root *build.RotatingLogWriter) {
 // AddSubLogger is a helper method to conveniently create and register the
 // logger of one or more sub systems.
 func AddSubLogger(root *build.RotatingLogWriter, subsystem string,
-	useLoggers ...func(btclog.Logger)) {
+	interceptor signal.Interceptor, useLoggers ...func(btclog.Logger)) {
 
 	// Create and register just a single logger to prevent them from
 	// overwriting each other internally.
-	logger := build.NewSubLogger(subsystem, root.GenSubLogger)
+	logger := build.NewSubLogger(subsystem, interceptor, root.GenSubLogger)
 	SetSubLogger(root, subsystem, logger, useLoggers...)
 }
 

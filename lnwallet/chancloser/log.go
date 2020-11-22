@@ -3,6 +3,7 @@ package chancloser
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/signal"
 )
 
 // chancloserLog is a logger that is initialized with the btclog.Disabled
@@ -11,7 +12,7 @@ var chancloserLog btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("CHCL", nil))
+	UseLogger(build.NewSubLogger("CHCL", signal.Interceptor{}, nil))
 }
 
 // DisableLog disables all logging output.

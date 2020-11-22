@@ -14,40 +14,42 @@ import (
 )
 
 var (
-	// shutdownRequestChannel is used to request the daemon to shutdown
-	// gracefully, similar to when receiving SIGINT.
-	shutdownRequestChannel chan struct{}
-
 	// started indicates whether we have started our main interrupt handler.
 	// This field should be used atomically.
 	started int32
-
-	// quit is closed when instructing the main interrupt handler to exit.
-	quit chan struct{}
 )
 
-type Channels struct {
-	// interruptChannel is used to receive SIGINT (Ctrl+C) signals.
+type Interceptor struct {
+	// InterruptChannel is used to receive SIGINT (Ctrl+C) signals.
 	InterruptChannel chan os.Signal
 
-	// shutdownChannel is closed once the main interrupt handler exits.
+	// ShutdownChannel is closed once the main interrupt handler exits.
 	ShutdownChannel chan struct{}
+
+	// ShutdownRequestChannel is used to request the daemon to shutdown
+	// gracefully, similar to when receiving SIGINT.
+	ShutdownRequestChannel chan struct{}
+
+	// Quit is closed when instructing the main interrupt handler to exit.
+	Quit chan struct{}
 }
 
 // Intercept starts the interception of interrupt signals. Note that this
 // function can only be called once.
-func Intercept() (Channels, error) {
+func Intercept() (Interceptor, error) {
 	if !atomic.CompareAndSwapInt32(&started, 0, 1) {
-		return Channels{}, errors.New("intercept already started")
+		return Interceptor{}, errors.New("intercept already started")
 	}
 
-	channels := Channels{
-		InterruptChannel: make(chan os.Signal, 1),
-		ShutdownChannel: make(chan struct{}),
+	channels := Interceptor{
+		InterruptChannel:       make(chan os.Signal, 1),
+		ShutdownChannel:        make(chan struct{}),
+		ShutdownRequestChannel: make(chan struct{}),
+		Quit:                   make(chan struct{}),
 	}
 
-	shutdownRequestChannel = make(chan struct{})
-	quit = make(chan struct{})
+	// shutdownRequestChannel = make(chan struct{})
+	// quit = make(chan struct{})
 
 	signalsToCatch := []os.Signal{
 		os.Interrupt,
@@ -66,7 +68,7 @@ func Intercept() (Channels, error) {
 // invokes the registered interruptCallbacks accordingly. It also listens for
 // callback registration.
 // It must be run as a goroutine.
-func mainInterruptHandler(channels Channels) {
+func mainInterruptHandler(channels Interceptor) {
 	defer atomic.StoreInt32(&started, 0)
 	// isShutdown is a flag which is used to indicate whether or not
 	// the shutdown signal has already been received and hence any future
@@ -87,7 +89,7 @@ func mainInterruptHandler(channels Channels) {
 
 		// Signal the main interrupt handler to exit, and stop accept
 		// post-facto requests.
-		close(quit)
+		close(channels.Quit)
 	}
 
 	for {
@@ -96,11 +98,11 @@ func mainInterruptHandler(channels Channels) {
 			log.Infof("Received %v", signal)
 			shutdown()
 
-		case <-shutdownRequestChannel:
+		case <-channels.ShutdownRequestChannel:
 			log.Infof("Received shutdown request.")
 			shutdown()
 
-		case <-quit:
+		case <-channels.Quit:
 			log.Infof("Gracefully shutting down.")
 			close(channels.ShutdownChannel)
 			signal.Stop(channels.InterruptChannel)
@@ -111,7 +113,7 @@ func mainInterruptHandler(channels Channels) {
 
 // Listening returns true if the main interrupt handler has been started, and
 // has not been killed.
-func Listening() bool {
+func (channels Interceptor) Listening() bool {
 	// If our started field is not set, we are not yet listening for
 	// interrupts.
 	if atomic.LoadInt32(&started) != 1 {
@@ -120,13 +122,13 @@ func Listening() bool {
 
 	// If we have started our main goroutine, we check whether we have
 	// stopped it yet.
-	return Alive()
+	return channels.Alive()
 }
 
 // Alive returns true if the main interrupt handler has not been killed.
-func Alive() bool {
+func (channels Interceptor) Alive() bool {
 	select {
-	case <-quit:
+	case <-channels.Quit:
 		return false
 	default:
 		return true
@@ -134,9 +136,9 @@ func Alive() bool {
 }
 
 // RequestShutdown initiates a graceful shutdown from the application.
-func RequestShutdown() {
+func (channels Interceptor) RequestShutdown() {
 	select {
-	case shutdownRequestChannel <- struct{}{}:
-	case <-quit:
+	case channels.ShutdownRequestChannel <- struct{}{}:
+	case <-channels.Quit:
 	}
 }
