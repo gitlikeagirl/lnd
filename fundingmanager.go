@@ -735,33 +735,14 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 		ctx.err <- fundingErr
 	}
 
-	// We only send the exact error if it is part of out whitelisted set of
-	// errors (lnwire.FundingError or lnwallet.ReservationError).
-	var msg lnwire.ErrorData
-	switch e := fundingErr.(type) {
-
-	// Let the actual error message be sent to the remote for the
-	// whitelisted types.
-	case lnwallet.ReservationError:
-		msg = lnwire.ErrorData(e.Error())
-	case lnwire.FundingError:
-		msg = lnwire.ErrorData(e.Error())
-	case chanacceptor.ChanAcceptError:
-		msg = lnwire.ErrorData(e.Error())
-
-	// For all other error types we just send a generic error.
-	default:
-		msg = lnwire.ErrorData("funding failed due to internal error")
-	}
-
-	errMsg := &lnwire.Error{
-		ChanID: tempChanID,
-		Data:   msg,
+	codedErr, ok := fundingErr.(*lnwire.CodedError)
+	if !ok {
+		panic("did not get a wire error")
 	}
 
 	fndgLog.Debugf("Sending funding error to peer (%x): %v",
-		peer.IdentityKey().SerializeCompressed(), spew.Sdump(errMsg))
-	if err := peer.SendMessage(false, errMsg); err != nil {
+		peer.IdentityKey().SerializeCompressed(), spew.Sdump(codedErr))
+	if err := peer.SendMessage(false, codedErr); err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
 	}
 }
@@ -1228,7 +1209,8 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	if numPending >= f.cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
+			//lnwire.ErrMaxPendingChannels,
+			lnwire.NewGenericError(msg.PendingChannelID, "pending"),
 		)
 		return
 	}
@@ -1243,16 +1225,24 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		}
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrSynchronizingChain,
+			//	lnwire.ErrSynchronizingChain,
+			lnwire.NewGenericError(msg.PendingChannelID, "syncing"),
 		)
 		return
 	}
+
+	fundingFail := lnwire.NewChannelParametersError(
+		msg.PendingChannelID, f.cfg.MinChanSize,
+		f.cfg.MaxChanSize, msg.DustLimit, 0,
+		1000, f.cfg.RejectPush,
+	)
 
 	// Ensure that the remote party respects our maximum channel size.
 	if amt > f.cfg.MaxChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
+			//	lnwallet.ErrChanTooLarge(amt, f.cfg.MaxChanSize),
+			fundingFail,
 		)
 		return
 	}
@@ -1262,7 +1252,8 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	if amt < f.cfg.MinChanSize {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+			//lnwallet.ErrChanTooSmall(amt, btcutil.Amount(f.cfg.MinChanSize)),
+			fundingFail,
 		)
 		return
 	}
@@ -1272,7 +1263,7 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	if f.cfg.RejectPush && msg.PushAmount > 0 {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwallet.ErrNonZeroPushAmount(),
+			fundingFail,
 		)
 		return
 	}
@@ -1359,7 +1350,8 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 		CsvDelay:         msg.CsvDelay,
 	}
 	err = reservation.CommitConstraints(
-		channelConstraints, f.cfg.MaxLocalCSVDelay,
+		msg.PendingChannelID, channelConstraints,
+		f.cfg.MaxLocalCSVDelay,
 	)
 	if err != nil {
 		fndgLog.Errorf("Unacceptable channel constraints: %v", err)
@@ -1546,9 +1538,10 @@ func (f *fundingManager) handleFundingAccept(peer lnpeer.Peer,
 	// maximum number of confirmations required by the ChainNotifier to
 	// properly dispatch confirmations.
 	if msg.MinAcceptDepth > chainntnfs.MaxNumConfs {
-		err := lnwallet.ErrNumConfsTooLarge(
+		/*err := lnwallet.ErrNumConfsTooLarge(
 			msg.MinAcceptDepth, chainntnfs.MaxNumConfs,
-		)
+		)*/
+		err := lnwire.NewGenericError(msg.PendingChannelID, "confs too large")
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)
 		f.failFundingFlow(peer, msg.PendingChannelID, err)
 		return
@@ -1567,7 +1560,8 @@ func (f *fundingManager) handleFundingAccept(peer lnpeer.Peer,
 		CsvDelay:         msg.CsvDelay,
 	}
 	err = resCtx.reservation.CommitConstraints(
-		channelConstraints, resCtx.maxLocalCsv,
+		msg.PendingChannelID, channelConstraints,
+		f.cfg.MaxLocalCSVDelay,
 	)
 	if err != nil {
 		fndgLog.Warnf("Unacceptable channel constraints: %v", err)

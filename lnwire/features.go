@@ -119,6 +119,14 @@ const (
 	// outputs.
 	AnchorsOptional FeatureBit = 21
 
+	// ErrorCodesRequired is a required feature bit that signals that the
+	// node requires errors with error codes to be used.
+	ErrorCodesRequired FeatureBit = 22
+
+	// ErrorCodesOptional is an optional feaure bit that signals that the
+	// node can receive errors with error codes, but does not require them.
+	ErrorCodesOptional FeatureBit = 23
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -160,6 +168,8 @@ var Features = map[FeatureBit]string{
 	AnchorsOptional:               "anchor-commitments",
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
+	ErrorCodesRequired:            "error-codes",
+	ErrorCodesOptional:            "error-codes",
 }
 
 // RawFeatureVector represents a set of feature bits as defined in BOLT-09.  A

@@ -5014,18 +5014,21 @@ func (lc *LightningChannel) SettleHTLC(preimage [32]byte,
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		// TODO(Carla): get channel ID
+		return lnwire.NewUnknownHtlcIndexError([32]byte{}, htlcIndex)
 	}
 
 	// Now that we know the HTLC exists, before checking to see if the
 	// preimage matches, we'll ensure that we haven't already attempted to
 	// modify the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadySettled(htlcIndex)
+		// TODO(index already settled)
+		return lnwire.NewGenericError([32]byte{}, "already settled")
 	}
 
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
-		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
+		// TODO(invalid preimage)
+		return lnwire.NewGenericError([32]byte{}, "already settled")
 	}
 
 	pd := &PaymentDescriptor{
@@ -5059,18 +5062,20 @@ func (lc *LightningChannel) ReceiveHTLCSettle(preimage [32]byte, htlcIndex uint6
 
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return lnwire.NewUnknownHtlcIndexError([32]byte{}, htlcIndex)
 	}
 
 	// Now that we know the HTLC exists, before checking to see if the
 	// preimage matches, we'll ensure that they haven't already attempted
 	// to modify the HTLC.
 	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadySettled(htlcIndex)
+		// TODO(index already settled)
+		return lnwire.NewGenericError([32]byte{}, "already settled")
 	}
 
 	if htlc.RHash != sha256.Sum256(preimage[:]) {
-		return ErrInvalidSettlePreimage{preimage[:], htlc.RHash[:]}
+		// TODO(invalid preimage)
+		return lnwire.NewGenericError([32]byte{}, "invalid preiamge")
 	}
 
 	pd := &PaymentDescriptor{
@@ -5124,13 +5129,14 @@ func (lc *LightningChannel) FailHTLC(htlcIndex uint64, reason []byte,
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return lnwire.NewUnknownHtlcIndexError([32]byte{}, htlcIndex)
 	}
 
 	// Now that we know the HTLC exists, we'll ensure that we haven't
 	// already attempted to fail the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+		// TODO(index already failed)
+		return lnwire.NewGenericError([32]byte{}, "already failed")
 	}
 
 	pd := &PaymentDescriptor{
@@ -5174,13 +5180,14 @@ func (lc *LightningChannel) MalformedFailHTLC(htlcIndex uint64,
 
 	htlc := lc.remoteUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return lnwire.NewUnknownHtlcIndexError([32]byte{}, htlcIndex)
 	}
 
 	// Now that we know the HTLC exists, we'll ensure that we haven't
 	// already attempted to fail the HTLC.
 	if lc.remoteUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+		// TODO(index already failed)
+		return lnwire.NewGenericError([32]byte{}, "already failed")
 	}
 
 	pd := &PaymentDescriptor{
@@ -5217,13 +5224,14 @@ func (lc *LightningChannel) ReceiveFailHTLC(htlcIndex uint64, reason []byte,
 
 	htlc := lc.localUpdateLog.lookupHtlc(htlcIndex)
 	if htlc == nil {
-		return ErrUnknownHtlcIndex{lc.ShortChanID(), htlcIndex}
+		return lnwire.NewUnknownHtlcIndexError([32]byte{}, htlcIndex)
 	}
 
 	// Now that we know the HTLC exists, we'll ensure that they haven't
 	// already attempted to fail the HTLC.
 	if lc.localUpdateLog.htlcHasModification(htlcIndex) {
-		return ErrHtlcIndexAlreadyFailed(htlcIndex)
+		// TODO(index already failed)
+		return lnwire.NewGenericError([32]byte{}, "already failed")
 	}
 
 	pd := &PaymentDescriptor{

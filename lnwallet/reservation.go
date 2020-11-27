@@ -210,10 +210,12 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// If the responder doesn't have enough funds to actually pay
 		// the fees, then we'll bail our early.
 		if int64(theirBalance) < 0 {
-			return nil, ErrFunderBalanceDust(
+			// TODO(carla): would we have a separate error for this?
+			return nil, lnwire.NewGenericError(pendingChanID, "balance below dust")
+			/*ErrFunderBalanceDust(
 				int64(commitFee), int64(theirBalance.ToSatoshis()),
 				int64(2*DefaultDustLimit()),
-			)
+			)*/
 		}
 	} else {
 		// TODO(roasbeef): need to rework fee structure in general and
@@ -239,10 +241,12 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 		// If we, the initiator don't have enough funds to actually pay
 		// the fees, then we'll exit with an error.
 		if int64(ourBalance) < 0 {
-			return nil, ErrFunderBalanceDust(
+			// TODO(carla): would we have a separate error for this?
+			return nil, lnwire.NewGenericError(pendingChanID, "balance below dust")
+			/*return nil, ErrFunderBalanceDust(
 				int64(commitFee), int64(ourBalance),
 				int64(2*DefaultDustLimit()),
-			)
+			)*/
 		}
 	}
 
@@ -252,21 +256,28 @@ func NewChannelReservation(capacity, localFundingAmt btcutil.Amount,
 	//
 	// TODO(roasbeef): reject if 30% goes to fees? dust channel
 	if initiator && ourBalance.ToSatoshis() <= 2*DefaultDustLimit() {
-		return nil, ErrFunderBalanceDust(
-			int64(commitFee),
-			int64(ourBalance.ToSatoshis()),
-			int64(2*DefaultDustLimit()),
-		)
+		// TODO(carla): would we have a separate error for this?
+		return nil, lnwire.NewGenericError(pendingChanID, "balance below dust")
+
+		/*
+			return nil, ErrFunderBalanceDust(
+				int64(commitFee),
+				int64(ourBalance.ToSatoshis()),
+				int64(2*DefaultDustLimit()),
+			)
+		*/
 	}
 
 	// Similarly we ensure their balance is reasonable if we are not the
 	// initiator.
 	if !initiator && theirBalance.ToSatoshis() <= 2*DefaultDustLimit() {
-		return nil, ErrFunderBalanceDust(
+		/*return nil, ErrFunderBalanceDust(
 			int64(commitFee),
 			int64(theirBalance.ToSatoshis()),
 			int64(2*DefaultDustLimit()),
-		)
+		)*/
+
+		return nil, lnwire.NewGenericError(pendingChanID, "balance below dust")
 	}
 
 	// Next we'll set the channel type based on what we can ascertain about
@@ -383,27 +394,36 @@ func (r *ChannelReservation) SetNumConfsRequired(numConfs uint16) {
 // of satoshis that can be transferred in a single commitment. This function
 // will also attempt to verify the constraints for sanity, returning an error
 // if the parameters are seemed unsound.
-func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
-	maxLocalCSVDelay uint16) error {
+func (r *ChannelReservation) CommitConstraints(pendingID [32]byte,
+	c *channeldb.ChannelConstraints, maxLocalCSVDelay uint16) error {
+
 	r.Lock()
 	defer r.Unlock()
 
-	// Fail if the csv delay for our funds exceeds our maximum.
+	// Fail if we consider the channel reserve to be too large.  We
+	// currently fail if it is greater than 20% of the channel capacity.
+	maxChanReserve := r.partialState.Capacity / 5
+
+	// Create an error which will send our required parameters to our peer.
+	// We use our dust limit as the minimum reserve we want, and otherwise
+	// use values from our funding config.
+	paramsErr := lnwire.NewChannelParametersError(
+		pendingID, 0, 0, c.DustLimit,
+		maxChanReserve, uint32(maxLocalCSVDelay), false,
+	)
+
 	if c.CsvDelay > maxLocalCSVDelay {
-		return ErrCsvDelayTooLarge(c.CsvDelay, maxLocalCSVDelay)
+		return paramsErr
 	}
 
 	// The channel reserve should always be greater or equal to the dust
 	// limit. The reservation request should be denied if otherwise.
 	if c.DustLimit > c.ChanReserve {
-		return ErrChanReserveTooSmall(c.ChanReserve, c.DustLimit)
+		return paramsErr
 	}
 
-	// Fail if we consider the channel reserve to be too large.  We
-	// currently fail if it is greater than 20% of the channel capacity.
-	maxChanReserve := r.partialState.Capacity / 5
 	if c.ChanReserve > maxChanReserve {
-		return ErrChanReserveTooLarge(c.ChanReserve, maxChanReserve)
+		return paramsErr
 	}
 
 	// Fail if the minimum HTLC value is too large. If this is too large,
@@ -411,30 +431,34 @@ func (r *ChannelReservation) CommitConstraints(c *channeldb.ChannelConstraints,
 	// is currently set to maxValueInFlight, effectively letting the remote
 	// setting this as large as it wants.
 	if c.MinHTLC > c.MaxPendingAmount {
-		return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
+		//return ErrMinHtlcTooLarge(c.MinHTLC, c.MaxPendingAmount)
+		return lnwire.NewGenericError(pendingID, "htlc  too large")
 	}
 
 	// Fail if maxHtlcs is above the maximum allowed number of 483.  This
 	// number is specified in BOLT-02.
 	if c.MaxAcceptedHtlcs > uint16(input.MaxHTLCNumber/2) {
-		return ErrMaxHtlcNumTooLarge(
+		/*return ErrMaxHtlcNumTooLarge(
 			c.MaxAcceptedHtlcs, uint16(input.MaxHTLCNumber/2),
-		)
+		)*/
+		return lnwire.NewGenericError(pendingID, "htlc num too large")
 	}
 
 	// Fail if we consider maxHtlcs too small. If this is too small we
 	// cannot offer many HTLCs to the remote.
 	const minNumHtlc = 5
 	if c.MaxAcceptedHtlcs < minNumHtlc {
-		return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
+		//return ErrMaxHtlcNumTooSmall(c.MaxAcceptedHtlcs, minNumHtlc)
+		return lnwire.NewGenericError(pendingID, "max accepted htlcs")
 	}
 
 	// Fail if we consider maxValueInFlight too small. We currently require
 	// the remote to at least allow minNumHtlc * minHtlc in flight.
 	if c.MaxPendingAmount < minNumHtlc*c.MinHTLC {
-		return ErrMaxValueInFlightTooSmall(
+		/*return ErrMaxValueInFlightTooSmall(
 			c.MaxPendingAmount, minNumHtlc*c.MinHTLC,
-		)
+		)*/
+		return lnwire.NewGenericError(pendingID, "pending amount")
 	}
 
 	// Our dust limit should always be less than or equal to our proposed

@@ -1411,8 +1411,11 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			// cleaned up by a prior response. We'll thus try to
 			// clean up any lingering state to ensure we don't
 			// continue reforwarding.
-			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
-				l.cleanupSpuriousResponse(pkt)
+			if codedErr, ok := err.(*lnwire.CodedError); ok {
+				_, ok = codedErr.ErrorMetadata.(*lnwire.UnknownHtlcIndex)
+				if ok {
+					l.cleanupSpuriousResponse(pkt)
+				}
 			}
 
 			// Remove the packet from the link's mailbox to ensure
@@ -1476,8 +1479,11 @@ func (l *channelLink) handleDownstreamPkt(pkt *htlcPacket) {
 			// by a prior response. We'll thus try to clean up any
 			// lingering state to ensure we don't continue
 			// reforwarding.
-			if _, ok := err.(lnwallet.ErrUnknownHtlcIndex); ok {
-				l.cleanupSpuriousResponse(pkt)
+			if codedErr, ok := err.(*lnwire.CodedError); ok {
+				_, ok = codedErr.ErrorMetadata.(*lnwire.UnknownHtlcIndex)
+				if ok {
+					l.cleanupSpuriousResponse(pkt)
+				}
 			}
 
 			// Remove the packet from the link's mailbox to ensure
@@ -1915,6 +1921,10 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			"ChannelPoint(%v): received error from peer: %v",
 			l.channel.ChannelPoint(), msg.Error(),
 		)
+
+	case *lnwire.CodedError:
+		// TODO
+
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}

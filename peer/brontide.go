@@ -1335,7 +1335,11 @@ out:
 
 		case *lnwire.Error:
 			targetChan = msg.ChanID
-			isLinkUpdate = p.handleError(msg)
+			isLinkUpdate = p.handleError(msg.ChanID, msg)
+
+		case *lnwire.CodedError:
+			targetChan = msg.ChannelID
+			isLinkUpdate = p.handleError(msg.ChannelID, msg)
 
 		case *lnwire.ChannelReestablish:
 			targetChan = msg.ChanID
@@ -1455,15 +1459,20 @@ func (p *Brontide) storeError(err error) {
 // open with the peer.
 //
 // NOTE: This method should only be called from within the readHandler.
-func (p *Brontide) handleError(msg *lnwire.Error) bool {
+func (p *Brontide) handleError(channelID lnwire.ChannelID,
+	msg lnwire.Message) bool {
+
 	// Store the error we have received.
-	p.storeError(msg)
+	errMsg, ok := msg.(error)
+	if ok {
+		p.storeError(errMsg)
+	}
 
 	switch {
 
 	// In the case of an all-zero channel ID we want to forward the error to
 	// all channels with this peer.
-	case msg.ChanID == lnwire.ConnectionWideID:
+	case channelID == lnwire.ConnectionWideID:
 		for _, chanStream := range p.activeMsgStreams {
 			chanStream.AddMsg(msg)
 		}
@@ -1471,12 +1480,12 @@ func (p *Brontide) handleError(msg *lnwire.Error) bool {
 
 	// If the channel ID for the error message corresponds to a pending
 	// channel, then the funding manager will handle the error.
-	case p.cfg.FundingManager.IsPendingChannel(msg.ChanID, p):
+	case p.cfg.FundingManager.IsPendingChannel(channelID, p):
 		p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 		return false
 
 	// If not we hand the error to the channel link for this channel.
-	case p.isActiveChannel(msg.ChanID):
+	case p.isActiveChannel(channelID):
 		return true
 
 	default:
@@ -1550,6 +1559,9 @@ func messageSummary(msg lnwire.Message) string {
 			msg.ChanID, msg.ID, msg.FailureCode)
 
 	case *lnwire.Error:
+		return fmt.Sprintf("%v", msg.Error())
+
+	case *lnwire.CodedError:
 		return fmt.Sprintf("%v", msg.Error())
 
 	case *lnwire.AnnounceSignatures:
@@ -2554,6 +2566,9 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		if failure.linkErr.SendData != nil {
 			data = failure.linkErr.SendData
 		}
+
+		// TODO(C): add a send error func?
+
 		err := p.SendMessage(true, &lnwire.Error{
 			ChanID: failure.chanID,
 			Data:   data,
@@ -2811,11 +2826,51 @@ func (p *Brontide) SendMessageLazy(sync bool, msgs ...lnwire.Message) error {
 	return p.sendMessage(sync, false, msgs...)
 }
 
+// formatPeerMessages downgrades error messages to the legacy format if our
+// peer does not support errors with error codes.
+func (p *Brontide) formatPeerMessages(msgs ...lnwire.Message) []lnwire.Message {
+	// Check whether our peer supports errors with codes.
+	codedErrors := p.RemoteFeatures().HasFeature(
+		lnwire.ErrorCodesOptional,
+	)
+
+	// If our peer supports coded errors, we do not need to downgrade any
+	// errors to legacy format.
+	peerLog.Infof("CKC supports coded errors = %v!", codedErrors)
+	if codedErrors {
+
+		return msgs
+	}
+
+	convertedMessages := make([]lnwire.Message, len(msgs))
+
+	// Run though all of the messages we need to send our peer and last
+	// minute convert to legacy error formats if our peer does not support
+	// option error codes.
+	for i, msg := range msgs {
+		// If the error is not a coded error, there is no need to
+		// convert it.
+		errMsg, ok := msg.(*lnwire.CodedError)
+		if !ok {
+			convertedMessages[i] = msg
+			continue
+		}
+
+		convertedMessages[i] = lnwire.NewLegacyError(
+			errMsg.ChannelID, []byte(errMsg.Error()),
+		)
+	}
+
+	return convertedMessages
+}
+
 // sendMessage queues a variadic number of messages using the passed priority
 // to the remote peer. If sync is true, this method will block until the
 // messages have been sent to the remote peer or an error is returned, otherwise
 // it returns immediately after queueing.
 func (p *Brontide) sendMessage(sync, priority bool, msgs ...lnwire.Message) error {
+	msgs = p.formatPeerMessages(msgs...)
+
 	// Add all incoming messages to the outgoing queue. A list of error
 	// chans is populated for each message if the caller requested a sync
 	// send.
@@ -2927,6 +2982,8 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 		}
 
 		peerLog.Errorf("Unable to respond to remote close msg: %v", err)
+
+		// TODO(carla): error type?
 
 		errMsg := &lnwire.Error{
 			ChanID: msg.cid,

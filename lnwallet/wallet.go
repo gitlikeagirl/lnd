@@ -599,7 +599,8 @@ func (l *LightningWallet) CancelFundingIntent(pid [32]byte) error {
 func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg) {
 	// It isn't possible to create a channel with zero funds committed.
 	if req.LocalFundingAmt+req.RemoteFundingAmt == 0 {
-		err := ErrZeroCapacity()
+		//err := ErrZeroCapacity()
+		err := lnwire.NewGenericError(req.PendingChanID, "zero amount")
 		req.err <- err
 		req.resp <- nil
 		return
@@ -608,9 +609,10 @@ func (l *LightningWallet) handleFundingReserveRequest(req *InitFundingReserveMsg
 	// If the funding request is for a different chain than the one the
 	// wallet is aware of, then we'll reject the request.
 	if !bytes.Equal(l.Cfg.NetParams.GenesisHash[:], req.ChainHash[:]) {
-		err := ErrChainMismatch(
+		/*err := ErrChainMismatch(
 			l.Cfg.NetParams.GenesisHash, req.ChainHash,
-		)
+		)*/
+		err := lnwire.NewGenericError(req.PendingChanID, "chain mismatch")
 		req.err <- err
 		req.resp <- nil
 		return

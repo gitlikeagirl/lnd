@@ -30,6 +30,7 @@ const (
 	MsgError                               = 17
 	MsgPing                                = 18
 	MsgPong                                = 19
+	MsgCodedError                          = 21
 	MsgOpenChannel                         = 32
 	MsgAcceptChannel                       = 33
 	MsgFundingCreated                      = 34
@@ -91,6 +92,8 @@ func (t MessageType) String() string {
 		return "ChannelReestablish"
 	case MsgError:
 		return "Error"
+	case MsgCodedError:
+		return "CodedError"
 	case MsgChannelAnnouncement:
 		return "ChannelAnnouncement"
 	case MsgChannelUpdate:
@@ -194,6 +197,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &ChannelReestablish{}
 	case MsgError:
 		msg = &Error{}
+	case MsgCodedError:
+		msg = &CodedError{}
 	case MsgChannelAnnouncement:
 		msg = &ChannelAnnouncement{}
 	case MsgChannelUpdate:
