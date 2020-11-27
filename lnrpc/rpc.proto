@@ -514,6 +514,12 @@ service Lightning {
     */
     rpc ListPermissions (ListPermissionsRequest)
         returns (ListPermissionsResponse);
+
+    /*
+    SendError sends an error to a peer that your node is connected to. Sensitive
+    information should not be disclosed.
+    */
+    rpc SendError (SendErrorRequest) returns (SendErrorResponse);
 }
 
 message Utxo {
@@ -3724,4 +3730,21 @@ message MacaroonId {
 message Op {
     string entity = 1;
     repeated string actions = 2;
+}
+
+message SendErrorRequest {
+    /*
+    The pubkey of the node to send the error to. When using REST, this field
+    must be encoded as base64.
+    */
+    bytes peer_pubkey = 1;
+
+    /*
+    The error to send to the remote peer. Do not include sensitive information
+    in this message. Limited to 1000 characters.
+    */
+    string error = 2;
+}
+
+message SendErrorResponse {
 }
