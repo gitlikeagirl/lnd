@@ -1,0 +1,33 @@
+name: Static Remote Check
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - "master"
+  pull_request:
+    branches:
+      - "*"
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  BITCOIN_VERSION: 0.18.1
+  GO_VERSION: 1.15.2
+  ECLAIR_VERSION: 0.4.2
+
+jobs:
+  static-required-upgrade:
+    name: required static remote keeps legacy channels
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v2
+
+      - name: create docker network
+        run: docker network create regtest
+
+      - name: static required check
+        run: ./scripts/static_remote.sh
