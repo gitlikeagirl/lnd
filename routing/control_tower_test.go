@@ -79,7 +79,7 @@ func TestControlTowerSubscribeSuccess(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentHash, info)
+	err = pControl.InitPayment(info.PaymentHash, "", info)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -196,7 +196,7 @@ func testPaymentControlSubscribeFail(t *testing.T, registerAttempt bool) {
 		t.Fatal(err)
 	}
 
-	err = pControl.InitPayment(info.PaymentHash, info)
+	err = pControl.InitPayment(info.PaymentHash, "", info)
 	if err != nil {
 		t.Fatal(err)
 	}

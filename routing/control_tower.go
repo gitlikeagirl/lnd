@@ -17,7 +17,7 @@ import (
 type ControlTower interface {
 	// This method checks that no suceeded payment exist for this payment
 	// hash.
-	InitPayment(lntypes.Hash, *channeldb.PaymentCreationInfo) error
+	InitPayment(lntypes.Hash, string, *channeldb.PaymentCreationInfo) error
 
 	// RegisterAttempt atomically records the provided HTLCAttemptInfo.
 	RegisterAttempt(lntypes.Hash, *channeldb.HTLCAttemptInfo) error
@@ -119,10 +119,10 @@ func NewControlTower(db *channeldb.PaymentControl) ControlTower {
 // making sure it does not already exist as an in-flight payment. Then this
 // method returns successfully, the payment is guranteeed to be in the InFlight
 // state.
-func (p *controlTower) InitPayment(paymentHash lntypes.Hash,
+func (p *controlTower) InitPayment(paymentHash lntypes.Hash, label string,
 	info *channeldb.PaymentCreationInfo) error {
 
-	return p.db.InitPayment(paymentHash, info)
+	return p.db.InitPayment(paymentHash, label, info)
 }
 
 // RegisterAttempt atomically records the provided HTLCAttemptInfo to the

@@ -98,7 +98,7 @@ func NewPaymentControl(db *DB) *PaymentControl {
 // making sure it does not already exist as an in-flight payment. When this
 // method returns successfully, the payment is guranteeed to be in the InFlight
 // state.
-func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
+func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash, label string,
 	info *PaymentCreationInfo) error {
 
 	var b bytes.Buffer
@@ -189,6 +189,14 @@ func (p *PaymentControl) InitPayment(paymentHash lntypes.Hash,
 		err = bucket.Put(paymentCreationInfoKey, infoBytes)
 		if err != nil {
 			return err
+		}
+
+		// Add our optional label if it is present.
+		if label != "" {
+			err = bucket.Put(paymentLabelKey, []byte(label))
+			if err != nil {
+				return nil
+			}
 		}
 
 		// We'll delete any lingering HTLCs to start with, in case we

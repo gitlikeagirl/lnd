@@ -1680,6 +1680,9 @@ type LightningPayment struct {
 	// MaxParts is the maximum number of partial payments that may be used
 	// to complete the full amount.
 	MaxParts uint32
+
+	// Label is an optional label for the payment.
+	Label string
 }
 
 // SendPayment attempts to send a payment as described within the passed
@@ -1784,7 +1787,9 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 		PaymentRequest: payment.PaymentRequest,
 	}
 
-	err = r.cfg.Control.InitPayment(payment.PaymentHash, info)
+	err = r.cfg.Control.InitPayment(
+		payment.PaymentHash, payment.Label, info,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -1797,8 +1802,8 @@ func (r *ChannelRouter) preparePayment(payment *LightningPayment) (
 // information as it is stored in the database. For a successful htlc, this
 // information will contain the preimage. If an error occurs after the attempt
 // was initiated, both return values will be non-nil.
-func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
-	*channeldb.HTLCAttempt, error) {
+func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, label string,
+	rt *route.Route) (*channeldb.HTLCAttempt, error) {
 
 	// Calculate amount paid to receiver.
 	amt := rt.ReceiverAmt()
@@ -1820,7 +1825,7 @@ func (r *ChannelRouter) SendToRoute(hash lntypes.Hash, rt *route.Route) (
 		PaymentRequest: nil,
 	}
 
-	err := r.cfg.Control.InitPayment(hash, info)
+	err := r.cfg.Control.InitPayment(hash, label, info)
 	switch {
 	// If this is an MPP attempt and the hash is already registered with
 	// the database, we can go on to launch the shard.

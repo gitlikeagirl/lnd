@@ -244,12 +244,13 @@ func makeMockControlTower() *mockControlTower {
 	}
 }
 
-func (m *mockControlTower) InitPayment(phash lntypes.Hash,
+func (m *mockControlTower) InitPayment(phash lntypes.Hash, string,
 	c *channeldb.PaymentCreationInfo) error {
 
 	m.Lock()
 	defer m.Unlock()
 
+	// TODO(Carla): test labels
 	if m.init != nil {
 		m.init <- initArgs{c}
 	}

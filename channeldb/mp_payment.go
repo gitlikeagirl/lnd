@@ -130,6 +130,9 @@ type MPPayment struct {
 
 	// Status is the current PaymentStatus of this payment.
 	Status PaymentStatus
+
+	// Label is an optional label added to a payment.
+	Label string
 }
 
 // TerminalInfo returns any HTLC settle info recorded. If no settle info is

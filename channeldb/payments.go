@@ -32,6 +32,7 @@ var (
 	//      |        |--sequence-key: <sequence number>
 	//      |        |--creation-info-key: <creation info>
 	//      |        |--fail-info-key: <(optional) fail info>
+	//      |        |--payment-label-key: <(optional) label>
 	//      |        |
 	//      |        |--payment-htlcs-bucket (shard-bucket)
 	//      |        |        |
@@ -92,6 +93,10 @@ var (
 	// paymentFailInfoKey is a key used in the payment's sub-bucket to
 	// store information about the reason a payment failed.
 	paymentFailInfoKey = []byte("payment-fail-info")
+
+	// paymentLabelKey is an optional sub-key used in the payment's sub-
+	// bucket to add a label to the payment.
+	paymentLabelKey = []byte("payment-label")
 
 	// paymentsIndexBucket is the name of the top-level bucket within the
 	// database that stores an index of payment sequence numbers to its
@@ -365,13 +370,20 @@ func fetchPayment(bucket kvdb.RBucket) (*MPPayment, error) {
 		paymentStatus = StatusInFlight
 	}
 
-	return &MPPayment{
+	payment := &MPPayment{
 		SequenceNum:   sequenceNum,
 		Info:          creationInfo,
 		HTLCs:         htlcs,
 		FailureReason: failureReason,
 		Status:        paymentStatus,
-	}, nil
+	}
+
+	// Add optional payment label if present.
+	if label := bucket.Get(paymentLabelKey); label != nil {
+		payment.Label = string(label)
+	}
+
+	return payment, nil
 }
 
 // fetchHtlcAttempts retrives all htlc attempts made for the payment found in
