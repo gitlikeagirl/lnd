@@ -1327,6 +1327,10 @@
           "type": "boolean",
           "format": "boolean",
           "description": "If set, only the final payment update is streamed back. Intermediate updates\nthat show which htlcs are still in flight are suppressed."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional label for the payment."
         }
       }
     },
@@ -1341,6 +1345,10 @@
         "route": {
           "$ref": "#/definitions/lnrpcRoute",
           "description": "Route that should be used to attempt to complete the payment."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional label for the payment."
         }
       }
     },

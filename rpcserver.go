@@ -4117,6 +4117,7 @@ type rpcPaymentIntent struct {
 	destCustomRecords record.CustomSet
 
 	route *route.Route
+	label string
 }
 
 // extractPaymentIntent attempts to parse the complete details required to
@@ -4124,7 +4125,9 @@ type rpcPaymentIntent struct {
 // three ways a client can specify their payment details: a payment request,
 // via manual details, or via a complete route.
 func (r *rpcServer) extractPaymentIntent(rpcPayReq *rpcPaymentRequest) (rpcPaymentIntent, error) {
-	payIntent := rpcPaymentIntent{}
+	payIntent := rpcPaymentIntent{
+		label: rpcPayReq.Label,
+	}
 
 	// If a route was specified, then we can use that directly.
 	if rpcPayReq.route != nil {
@@ -4382,7 +4385,7 @@ func (r *rpcServer) dispatchPaymentIntent(
 	} else {
 		var attempt *channeldb.HTLCAttempt
 		attempt, routerErr = r.server.chanRouter.SendToRoute(
-			payIntent.rHash, "", payIntent.route,
+			payIntent.rHash, payIntent.label, payIntent.route,
 		)
 
 		if routerErr == nil {

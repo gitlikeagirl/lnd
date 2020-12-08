@@ -708,6 +708,9 @@ message SendRequest {
     fallback.
     */
     repeated FeatureBit dest_features = 15;
+
+    // An optional label to add to the payment.
+    string label = 16;
 }
 
 message SendResponse {
@@ -734,6 +737,9 @@ message SendToRouteRequest {
 
     // Route that should be used to attempt to complete the payment.
     Route route = 4;
+
+    // An optional label for the payment.
+    string label = 5;
 }
 
 message ChannelAcceptRequest {

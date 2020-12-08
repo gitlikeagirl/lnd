@@ -357,7 +357,7 @@ func (s *Server) SendToRouteV2(ctx context.Context,
 	// the attempt was already initiated before the error happened. In that
 	// case, we give precedence to the attempt information as stored in the
 	// db.
-	attempt, err := s.cfg.Router.SendToRoute(hash, "", route)
+	attempt, err := s.cfg.Router.SendToRoute(hash, req.Label, route)
 	if attempt != nil {
 		rpcAttempt, err := s.cfg.RouterBackend.MarshalHTLCAttempt(
 			*attempt,

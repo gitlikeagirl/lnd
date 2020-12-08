@@ -510,7 +510,9 @@ func (r *RouterBackend) UnmarshallRoute(rpcroute *lnrpc.Route) (
 func (r *RouterBackend) extractIntentFromSendRequest(
 	rpcPayReq *SendPaymentRequest) (*routing.LightningPayment, error) {
 
-	payIntent := &routing.LightningPayment{}
+	payIntent := &routing.LightningPayment{
+		Label: rpcPayReq.Label,
+	}
 
 	// Pass along restrictions on the outgoing channels that may be used.
 	payIntent.OutgoingChannelIDs = rpcPayReq.OutgoingChanIds
