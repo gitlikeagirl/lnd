@@ -160,6 +160,10 @@ var sendPaymentCommand = cli.Command{
 			Name:  "keysend",
 			Usage: "will generate a pre-image and encode it in the sphinx packet, a dest must be set [experimental]",
 		},
+		cli.StringFlag{
+			Name:  "label",
+			Usage: "an optional label for the payment",
+		},
 	),
 	Action: sendPayment,
 }
@@ -218,6 +222,7 @@ func sendPayment(ctx *cli.Context) error {
 		req := &routerrpc.SendPaymentRequest{
 			PaymentRequest: ctx.String("pay_req"),
 			Amt:            ctx.Int64("amt"),
+			Label:          ctx.String("label"),
 		}
 
 		return sendPaymentRequest(ctx, req)
