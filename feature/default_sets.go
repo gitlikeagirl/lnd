@@ -33,7 +33,10 @@ var defaultSetDesc = setDesc{
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 	},
-	lnwire.PaymentAddrRequired: {
+	// We're using lnd 0.7 for our test, which doesn't know about this
+	// feature bit either. Downgrade to optional in this commit (which will
+	// be removed before merge) for simple testing.
+	lnwire.PaymentAddrOptional: {
 		SetInit:    {}, // I
 		SetNodeAnn: {}, // N
 		SetInvoice: {}, // 9
