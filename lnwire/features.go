@@ -129,6 +129,14 @@ const (
 	// transactions, which also imply anchor commitments.
 	AnchorsZeroFeeHtlcTxOptional FeatureBit = 23
 
+	// ErrorCodeRequired is a required feature bit that signals that the
+	// node requires errors with error codes to be sent.
+	ErrorCodeRequired FeatureBit = 24
+
+	// ErrorCodesOptional is an optional feature bit that signals that the
+	// node supports errors with codes.
+	ErrorCodesOptional FeatureBit = 25
+
 	// maxAllowedSize is a maximum allowed size of feature vector.
 	//
 	// NOTE: Within the protocol, the maximum allowed message size is 65535
@@ -168,8 +176,13 @@ var Features = map[FeatureBit]string{
 	MPPRequired:                   "multi-path-payments",
 	AnchorsRequired:               "anchor-commitments",
 	AnchorsOptional:               "anchor-commitments",
+<<<<<<< HEAD
 	AnchorsZeroFeeHtlcTxRequired:  "anchors-zero-fee-htlc-tx",
 	AnchorsZeroFeeHtlcTxOptional:  "anchors-zero-fee-htlc-tx",
+=======
+	ErrorCodeRequired:             "error-codes",
+	ErrorCodesOptional:            "error-codes",
+>>>>>>> 4383a1ab1 (multi: add feature bit for coded errors and downgrade as required)
 	WumboChannelsRequired:         "wumbo-channels",
 	WumboChannelsOptional:         "wumbo-channels",
 }

@@ -441,6 +441,36 @@ func NewBrontide(cfg Config) *Brontide {
 	return p
 }
 
+// msgFromPeer upgrades a legacy error from our peer to a generic coded error
+// type, considering all errors to be temporary because we do not know their
+// actual severity.
+func (p *Brontide) msgFromPeer(message lnwire.Message) lnwire.Message {
+	err, isErr := lnwire.IsLegacyError(message)
+	if !isErr {
+		return message
+	}
+
+	return lnwire.NewGenericError(err.ChanID, err.Data, true)
+}
+
+// msgToPeer downgrades coded errors to our legacy error message type if the
+// peer does not support them.
+func (p *Brontide) msgToPeer(message lnwire.Message) lnwire.Message {
+	// If this message is not a coded error, we don't need to change it.
+	err, isErr := message.(*lnwire.CodedError)
+	if !isErr {
+		return message
+	}
+
+	// If the peer supports coded errors, then we do not need to downgrade
+	// the error.
+	if p.remoteFeatures.HasFeature(lnwire.ErrorCodesOptional) {
+		return message
+	}
+
+	return lnwire.NewLegacyError(err.ChannelID, err.Error())
+}
+
 // Start starts all helper goroutines the peer needs for normal operations.  In
 // the case this peer has already been started, then this function is a noop.
 func (p *Brontide) Start() error {
@@ -959,6 +989,9 @@ func (p *Brontide) readNextMessage() (lnwire.Message, error) {
 		return nil, err
 	}
 
+	// Upgrade our message to the most recent format our node understands.
+	nextMsg = p.msgFromPeer(nextMsg)
+
 	p.logWireMessage(nextMsg, true)
 
 	return nextMsg, nil
@@ -1368,8 +1401,8 @@ out:
 				break out
 			}
 
-		case *lnwire.Error:
-			targetChan = msg.ChanID
+		case *lnwire.CodedError:
+			targetChan = msg.ChannelID
 			isLinkUpdate = p.handleError(msg)
 
 		case *lnwire.ChannelReestablish:
@@ -1490,7 +1523,7 @@ func (p *Brontide) storeError(err error) {
 // open with the peer.
 //
 // NOTE: This method should only be called from within the readHandler.
-func (p *Brontide) handleError(msg *lnwire.Error) bool {
+func (p *Brontide) handleError(msg *lnwire.CodedError) bool {
 	// Store the error we have received.
 	p.storeError(msg)
 
@@ -1498,7 +1531,7 @@ func (p *Brontide) handleError(msg *lnwire.Error) bool {
 
 	// In the case of an all-zero channel ID we want to forward the error to
 	// all channels with this peer.
-	case msg.ChanID == lnwire.ConnectionWideID:
+	case msg.ChannelID == lnwire.ConnectionWideID:
 		for _, chanStream := range p.activeMsgStreams {
 			chanStream.AddMsg(msg)
 		}
@@ -1506,12 +1539,12 @@ func (p *Brontide) handleError(msg *lnwire.Error) bool {
 
 	// If the channel ID for the error message corresponds to a pending
 	// channel, then the funding manager will handle the error.
-	case p.cfg.FundingManager.IsPendingChannel(msg.ChanID, p):
+	case p.cfg.FundingManager.IsPendingChannel(msg.ChannelID, p):
 		p.cfg.FundingManager.ProcessFundingMsg(msg, p)
 		return false
 
 	// If not we hand the error to the channel link for this channel.
-	case p.isActiveChannel(msg.ChanID):
+	case p.isActiveChannel(msg.ChannelID):
 		return true
 
 	default:
@@ -1584,8 +1617,9 @@ func messageSummary(msg lnwire.Message) string {
 		return fmt.Sprintf("chan_id=%v, id=%v, fail_code=%v",
 			msg.ChanID, msg.ID, msg.FailureCode)
 
-	case *lnwire.Error:
-		return fmt.Sprintf("%v", msg.Error())
+	case *lnwire.CodedError:
+		return fmt.Sprintf("chan_id=%v, error_code=%v, error=%v",
+			msg.ChannelID, msg.ErrorCode, msg.Error())
 
 	case *lnwire.AnnounceSignatures:
 		return fmt.Sprintf("chan_id=%v, short_chan_id=%v", msg.ChannelID,
@@ -1996,6 +2030,10 @@ func (p *Brontide) queueMsgLazy(msg lnwire.Message, errChan chan error) {
 // failed to write, and nil otherwise.
 func (p *Brontide) queue(priority bool, msg lnwire.Message,
 	errChan chan error) {
+
+	// Downgrade our message to a format that our peer will understand, if
+	// required.
+	msg = p.msgToPeer(msg)
 
 	select {
 	case p.outgoingQueue <- outgoingMsg{priority, msg, errChan}:
@@ -2589,10 +2627,9 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		if failure.linkErr.SendData != nil {
 			data = failure.linkErr.SendData
 		}
-		err := p.SendMessage(true, &lnwire.Error{
-			ChanID: failure.chanID,
-			Data:   data,
-		})
+
+		err := lnwire.NewGenericError(failure.chanID, data, false)
+
 		if err != nil {
 			peerLog.Errorf("unable to send msg to "+
 				"remote peer: %v", err)
@@ -2979,10 +3016,10 @@ func (p *Brontide) handleCloseMsg(msg *closeMsg) {
 
 		peerLog.Errorf("Unable to respond to remote close msg: %v", err)
 
-		errMsg := &lnwire.Error{
-			ChanID: msg.cid,
-			Data:   lnwire.ErrorData(err.Error()),
-		}
+		errMsg := lnwire.NewGenericError(
+			msg.cid, lnwire.ErrorData(err.Error()), false,
+		)
+
 		p.queueMsg(errMsg, nil)
 		return
 	}

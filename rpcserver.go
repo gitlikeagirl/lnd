@@ -6623,9 +6623,9 @@ func (r *rpcServer) SendError(_ context.Context, req *lnrpc.SendErrorRequest) (
 		return nil, errors.New("not connected to peer")
 	}
 
-	peerError := &lnwire.Error{
-		Data: lnwire.ErrorData(req.Error),
-	}
+	peerError := lnwire.NewGenericError(
+		lnwire.ChannelID{}, lnwire.ErrorData(req.Error), true,
+	)
 
 	return &lnrpc.SendErrorResponse{}, peer.SendMessage(false, peerError)
 }

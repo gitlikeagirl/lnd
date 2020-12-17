@@ -1899,29 +1899,50 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				"error receiving fee update: %v", err)
 			return
 		}
-	case *lnwire.Error:
-		// Error received from remote, MUST fail channel, but should
-		// only print the contents of the error message if all
-		// characters are printable ASCII.
-		l.fail(
-			LinkFailureError{
-				code: ErrRemoteError,
 
-				// TODO(halseth): we currently don't fail the
-				// channel permanently, as there are some sync
-				// issues with other implementations that will
-				// lead to them sending an error message, but
-				// we can recover from on next connection. See
-				// https://github.com/ElementsProject/lightning/issues/4212
-				PermanentFailure: false,
-			},
-			"ChannelPoint(%v): received error from peer: %v",
-			l.channel.ChannelPoint(), msg.Error(),
-		)
+	case *lnwire.CodedError:
+		l.handleCodedError(msg)
+
 	default:
 		l.log.Warnf("received unknown message of type %T", msg)
 	}
 
+}
+
+// handleCodedError handles errors we receive from our peer.
+func (l *channelLink) handleCodedError(err *lnwire.CodedError) {
+	// TODO(carla): this introduces a behaviour change. Previously,
+	// we would call l.fail and wipe channels that we get a remote
+	// error from.
+	//
+	// With current impl which upgrades all lnwire.Error to a
+	// lnwire.ErrorCodeTemporary, this case is catching two types
+	// of errors:
+	// 1. Legacy errors from un-upgraded peers (want to wipe) (?)
+	// 2. Temporary errors from upgraded peers (don't want to wipe)
+	//
+	// When moving out of PoC, find a better way to address this
+	// -> identify legacy errors somehow so that we still fail the link.
+	if err.ErrorCode == lnwire.ErrorCodeTemporary {
+		// As per previous comment:
+		// TODO(halseth): we currently don't fail the
+		// channel permanently, as there are some sync
+		// issues with other implementations that will
+		// lead to them sending an error message, but
+		// we can recover from on next connection. See
+		// https://github.com/ElementsProject/lightning/issues/4212
+		l.log.Infof("Received temporary error from peer: %v", err)
+		return
+	}
+
+	l.fail(
+		LinkFailureError{
+			code:             ErrRemoteError,
+			PermanentFailure: true,
+		},
+		"ChannelPoint(%v): received error from peer: %v",
+		l.channel.ChannelPoint(), err.Error(),
+	)
 }
 
 // ackDownStreamPackets is responsible for removing htlcs from a link's mailbox

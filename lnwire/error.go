@@ -67,9 +67,19 @@ type Error struct {
 	Data ErrorData
 }
 
-// NewError creates a new Error message.
-func NewError() *Error {
-	return &Error{}
+// IsLegacyError returns a boolean that indicates whether a message is a legacy
+// error, and the error itself.
+func IsLegacyError(msg Message) (*Error, bool) {
+	err, ok := msg.(*Error)
+	return err, ok
+}
+
+// NewLegacyError creates a new legacy Error message with the string provided.
+func NewLegacyError(chanID ChannelID, error string) *Error {
+	return &Error{
+		ChanID: chanID,
+		Data:   ErrorData(error),
+	}
 }
 
 // A compile time check to ensure Error implements the lnwire.Message

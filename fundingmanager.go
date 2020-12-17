@@ -741,31 +741,38 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 
 	// We only send the exact error if it is part of out whitelisted set of
 	// errors (lnwire.FundingError or lnwallet.ReservationError).
-	var msg lnwire.ErrorData
+	var wireError *lnwire.CodedError
 	switch e := fundingErr.(type) {
 
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
 	case lnwallet.ReservationError:
-		msg = lnwire.ErrorData(e.Error())
+		wireError = lnwire.NewGenericError(
+			tempChanID, lnwire.ErrorData(e.Error()), true,
+		)
+
 	case lnwire.FundingError:
-		msg = lnwire.ErrorData(e.Error())
+		wireError = lnwire.NewGenericError(
+			tempChanID, lnwire.ErrorData(e.Error()), true,
+		)
+
 	case chanacceptor.ChanAcceptError:
-		msg = lnwire.ErrorData(e.Error())
+		wireError = lnwire.NewGenericError(
+			tempChanID, lnwire.ErrorData(e.Error()), true,
+		)
 
 	// For all other error types we just send a generic error.
 	default:
-		msg = lnwire.ErrorData("funding failed due to internal error")
-	}
-
-	errMsg := &lnwire.Error{
-		ChanID: tempChanID,
-		Data:   msg,
+		wireError = lnwire.NewGenericError(
+			tempChanID, lnwire.ErrorData("funding failed due to "+
+				"internal error"), true,
+		)
 	}
 
 	fndgLog.Debugf("Sending funding error to peer (%x): %v",
-		peer.IdentityKey().SerializeCompressed(), spew.Sdump(errMsg))
-	if err := peer.SendMessage(false, errMsg); err != nil {
+		peer.IdentityKey().SerializeCompressed(), spew.Sdump(wireError))
+
+	if err := peer.SendMessage(false, wireError); err != nil {
 		fndgLog.Errorf("unable to send error message to peer %v", err)
 	}
 }
@@ -796,7 +803,7 @@ func (f *fundingManager) reservationCoordinator() {
 			case *lnwire.FundingLocked:
 				f.wg.Add(1)
 				go f.handleFundingLocked(fmsg.peer, msg)
-			case *lnwire.Error:
+			case *lnwire.CodedError:
 				f.handleErrorMsg(fmsg.peer, msg)
 			}
 		case req := <-f.fundingRequests:
@@ -3339,11 +3346,11 @@ func (f *fundingManager) handleInitFundingMsg(msg *initFundingMsg) {
 // handleErrorMsg processes the error which was received from remote peer,
 // depending on the type of error we should do different clean up steps and
 // inform the user about it.
-func (f *fundingManager) handleErrorMsg(peer lnpeer.Peer,
-	msg *lnwire.Error) {
-
-	chanID := msg.ChanID
+func (f *fundingManager) handleErrorMsg(peer lnpeer.Peer, msg *lnwire.CodedError) {
+	chanID := msg.ChannelID
 	peerKey := peer.IdentityKey()
+
+	// TODO(carla): react differently to error codes?
 
 	// First, we'll attempt to retrieve and cancel the funding workflow
 	// that this error was tied to. If we're unable to do so, then we'll
