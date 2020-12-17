@@ -471,6 +471,10 @@ func MainRPCServerPermissions() map[string][]bakery.Op {
 			Entity: "offchain",
 			Action: "write",
 		}},
+		"/lnrpc.Lightning/SendError": {{
+			Entity: "peers",
+			Action: "write",
+		}},
 	}
 }
 
@@ -6585,6 +6589,45 @@ func (r *rpcServer) ListPermissions(_ context.Context,
 	return &lnrpc.ListPermissionsResponse{
 		MethodPermissions: permissionMap,
 	}, nil
+}
+
+// SendError sends an error to a peer that we are already connected to.
+func (r *rpcServer) SendError(_ context.Context, req *lnrpc.SendErrorRequest) (
+	*lnrpc.SendErrorResponse, error) {
+
+	// TODO(carla): use a better value
+	if len(req.Error) > 1000 {
+		return nil, errors.New("peer error must be <= 1000 chars")
+	}
+
+	if len(req.PeerPubkey) == 0 {
+		return nil, errors.New("peer pubkey is required to send error")
+	}
+
+	pubKey, err := btcec.ParsePubKey(req.PeerPubkey, btcec.S256())
+	if err != nil {
+		return nil, err
+	}
+
+	if pubKey.IsEqual(r.server.identityECDH.PubKey()) {
+		return nil, errors.New("cannot send error to ourselves")
+	}
+
+	// First attempt to locate the target peer to open a channel with, if
+	// we're unable to locate the peer then this request will fail.
+	r.server.mu.RLock()
+	peer, ok := r.server.peersByPub[string(pubKey.SerializeCompressed())]
+	r.server.mu.RUnlock()
+
+	if !ok {
+		return nil, errors.New("not connected to peer")
+	}
+
+	peerError := &lnwire.Error{
+		Data: lnwire.ErrorData(req.Error),
+	}
+
+	return &lnrpc.SendErrorResponse{}, peer.SendMessage(false, peerError)
 }
 
 // FundingStateStep is an advanced funding related call that allows the caller
