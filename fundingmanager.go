@@ -747,8 +747,11 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 	// Let the actual error message be sent to the remote for the
 	// whitelisted types.
 	case lnwallet.ReservationError:
-		wireError = lnwire.NewGenericError(
-			tempChanID, lnwire.ErrorData(e.Error()), true,
+		wireError = lnwire.NewReservationError(
+			tempChanID, nil, f.cfg.MinChanSize,
+			f.cfg.MaxChanSize, 0, 0, ctx.maxLocalCsv,
+			!f.cfg.RejectPush, 0, 0,
+			0, 0, 0,
 		)
 
 	case lnwire.FundingError:

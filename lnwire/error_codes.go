@@ -55,6 +55,10 @@ const (
 	// ErrorCodeInvalidFeeUpdate indicates that the remote node's fee update
 	// is invalid.
 	ErrorCodeInvalidFeeUpdate ErrorCode = 13
+
+	// ErrorCodeReservation indicates that the parameters provided during
+	// channel opening are unsuitable.
+	ErrorCodeReservation ErrorCode = 14
 )
 
 // String returns the string representation of an error code.
@@ -101,6 +105,9 @@ func (e ErrorCode) String() string {
 
 	case ErrorCodeInvalidFeeUpdate:
 		return "Invalid Fee Update"
+
+	case ErrorCodeReservation:
+		return "Reservation Error"
 
 	default:
 		return "Unknown"

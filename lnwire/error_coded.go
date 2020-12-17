@@ -4,6 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcutil"
 )
 
 // ErrUnknownEvenErrorCode is returned if we try to decode an even feature bit
@@ -79,6 +82,9 @@ func (c *CodedError) Decode(r io.Reader, pver uint32) error {
 
 	case ErrorCodeInvalidHtlcSig:
 		c.ErrorMetadata = &InvalidHtlcSigMetadata{}
+
+	case ErrorCodeReservation:
+		c.ErrorMetadata = &ReservationMetadata{}
 
 	default:
 		// If we have an unknown even error code, we should fail.
@@ -202,6 +208,31 @@ func NewHtlcSigError(chanID ChannelID, commitHeight,
 		ErrorMetadata: &InvalidHtlcSigMetadata{
 			commitHeight: commitHeight,
 			htlcIndex:    htlcIndex,
+		},
+	}
+}
+
+// NewReservationError returns a coded error with our funding requirements.
+func NewReservationError(chanID ChannelID, chainHash *chainhash.Hash, minSize,
+	maxSize, minReserve, maxReserve btcutil.Amount, maxCSV uint16,
+	allowPush bool, maxInFlightMaximum, maxInFlightMinimum btcutil.Amount,
+	maxHtlcNum, minHtlcNum uint16, maxConfs uint32) *CodedError {
+	return &CodedError{
+		ChannelID: chanID,
+		ErrorCode: ErrorCodeReservation,
+		ErrorMetadata: &ReservationMetadata{
+			chainHash:          chainHash,
+			minSize:            minSize,
+			maxSize:            maxSize,
+			maxCSV:             maxCSV,
+			minReserve:         minReserve,
+			maxReserve:         maxReserve,
+			allowPush:          allowPush,
+			maxInFlightMaximum: maxInFlightMaximum,
+			maxInFlightMinimum: maxInFlightMinimum,
+			maxHtlcNum:         maxHtlcNum,
+			minHtlcNum:         minHtlcNum,
+			maxConfs:           maxConfs,
 		},
 	}
 }
