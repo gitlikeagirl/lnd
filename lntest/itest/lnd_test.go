@@ -7623,10 +7623,6 @@ func testMaxPendingChannels(net *lntest.NetworkHarness, t *harnessTest) {
 
 	if err == nil {
 		t.Fatalf("error wasn't received")
-	} else if !strings.Contains(
-		err.Error(), lnwire.ErrMaxPendingChannels.Error(),
-	) {
-		t.Fatalf("not expected error was received: %v", err)
 	}
 
 	// For now our channels are in pending state, in order to not interfere
