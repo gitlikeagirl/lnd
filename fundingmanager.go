@@ -754,15 +754,13 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 			0, 0, 0,
 		)
 
-	case lnwire.FundingError:
-		wireError = lnwire.NewGenericError(
-			tempChanID, lnwire.ErrorData(e.Error()), true,
-		)
-
 	case chanacceptor.ChanAcceptError:
 		wireError = lnwire.NewGenericError(
 			tempChanID, lnwire.ErrorData(e.Error()), true,
 		)
+
+	case *lnwire.CodedError:
+		wireError = e
 
 	// For all other error types we just send a generic error.
 	default:
@@ -1243,7 +1241,9 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	if numPending >= f.cfg.MaxPendingChannels {
 		f.failFundingFlow(
 			peer, msg.PendingChannelID,
-			lnwire.ErrMaxPendingChannels,
+			lnwire.NewGenericError(
+				msg.PendingChannelID, nil, true,
+			),
 		)
 		return
 	}
@@ -1257,8 +1257,9 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 			fndgLog.Errorf("unable to query wallet: %v", err)
 		}
 		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			lnwire.ErrSynchronizingChain,
+			peer, msg.PendingChannelID, lnwire.NewGenericError(
+				msg.PendingChannelID, nil, true,
+			),
 		)
 		return
 	}
