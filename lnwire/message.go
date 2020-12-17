@@ -30,6 +30,7 @@ const (
 	MsgError                               = 17
 	MsgPing                                = 18
 	MsgPong                                = 19
+	MsgCodedError                          = 21
 	MsgOpenChannel                         = 32
 	MsgAcceptChannel                       = 33
 	MsgFundingCreated                      = 34
@@ -103,6 +104,8 @@ func (t MessageType) String() string {
 		return "AnnounceSignatures"
 	case MsgPong:
 		return "Pong"
+	case MsgCodedError:
+		return "CodedError"
 	case MsgUpdateFee:
 		return "UpdateFee"
 	case MsgQueryShortChanIDs:
@@ -206,6 +209,8 @@ func makeEmptyMessage(msgType MessageType) (Message, error) {
 		msg = &AnnounceSignatures{}
 	case MsgPong:
 		msg = &Pong{}
+	case MsgCodedError:
+		msg = &CodedError{}
 	case MsgQueryShortChanIDs:
 		msg = &QueryShortChanIDs{}
 	case MsgReplyShortChanIDsEnd:
