@@ -33,9 +33,9 @@ type ChannelAcceptRequest struct {
 // to the mergeResponse function to allow combining of responses from different
 // acceptors.
 type ChannelAcceptResponse struct {
-	// ChanAcceptError the error returned by the channel acceptor. If the
-	// channel was accepted, this value will be nil.
-	ChanAcceptError
+	// Err is the returned by the acceptor. This value will be nil if the
+	// channel was accepted.
+	Err *lnwire.CodedError
 
 	// UpfrontShutdown is the address that we will set as our upfront
 	// shutdown address.
@@ -69,9 +69,9 @@ type ChannelAcceptResponse struct {
 // a rejection) so that the error will be whitelisted and delivered to the
 // initiating peer. Accepted channels simply return a response containing a nil
 // error.
-func NewChannelAcceptResponse(accept bool, acceptErr error,
-	upfrontShutdown lnwire.DeliveryAddress, csvDelay, htlcLimit,
-	minDepth uint16, reserve btcutil.Amount, inFlight,
+func NewChannelAcceptResponse(chanID lnwire.ChannelID, accept bool,
+	acceptErr error, upfrontShutdown lnwire.DeliveryAddress, csvDelay,
+	htlcLimit, minDepth uint16, reserve btcutil.Amount, inFlight,
 	minHtlcIn lnwire.MilliSatoshi) *ChannelAcceptResponse {
 
 	resp := &ChannelAcceptResponse{
@@ -95,9 +95,9 @@ func NewChannelAcceptResponse(accept bool, acceptErr error,
 		acceptErr = errChannelRejected
 	}
 
-	resp.ChanAcceptError = ChanAcceptError{
-		error: acceptErr,
-	}
+	resp.Err = lnwire.NewGenericError(
+		chanID, lnwire.ErrorData(acceptErr.Error()), true,
+	)
 
 	return resp
 }
@@ -105,7 +105,7 @@ func NewChannelAcceptResponse(accept bool, acceptErr error,
 // RejectChannel returns a boolean that indicates whether we should reject the
 // channel.
 func (c *ChannelAcceptResponse) RejectChannel() bool {
-	return c.error != nil
+	return c.Err != nil
 }
 
 // ChannelAcceptor is an interface that represents  a predicate on the data

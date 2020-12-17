@@ -107,7 +107,8 @@ func (r *RPCAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptResponse {
 	// Create a rejection response which we can use for the cases where we
 	// reject the channel.
 	rejectChannel := NewChannelAcceptResponse(
-		false, errChannelRejected, nil, 0, 0, 0, 0, 0, 0,
+		req.OpenChanMsg.PendingChannelID, false, errChannelRejected,
+		nil, 0, 0, 0, 0, 0, 0,
 	)
 
 	// Send the request to the newRequests channel.
@@ -304,6 +305,7 @@ func (r *RPCAcceptor) sendAcceptRequests(errChan chan error,
 			}
 
 			requestInfo.response <- NewChannelAcceptResponse(
+				requestInfo.request.OpenChanMsg.PendingChannelID,
 				accept, acceptErr, shutdown,
 				uint16(resp.CsvDelay),
 				uint16(resp.MaxHtlcCount),

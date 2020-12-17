@@ -79,7 +79,8 @@ func (c *ChainedAcceptor) Accept(req *ChannelAcceptRequest) *ChannelAcceptRespon
 				req.OpenChanMsg.PendingChannelID, err)
 
 			return NewChannelAcceptResponse(
-				false, errChannelRejected, nil, 0, 0,
+				req.OpenChanMsg.PendingChannelID, false,
+				errChannelRejected, nil, 0, 0,
 				0, 0, 0, 0,
 			)
 		}

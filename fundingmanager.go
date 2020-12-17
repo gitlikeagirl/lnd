@@ -754,11 +754,6 @@ func (f *fundingManager) failFundingFlow(peer lnpeer.Peer, tempChanID [32]byte,
 			0, 0, 0,
 		)
 
-	case chanacceptor.ChanAcceptError:
-		wireError = lnwire.NewGenericError(
-			tempChanID, lnwire.ErrorData(e.Error()), true,
-		)
-
 	case *lnwire.CodedError:
 		wireError = e
 
@@ -1305,8 +1300,7 @@ func (f *fundingManager) handleFundingOpen(peer lnpeer.Peer,
 	acceptorResp := f.cfg.OpenChannelPredicate.Accept(chanReq)
 	if acceptorResp.RejectChannel() {
 		f.failFundingFlow(
-			peer, msg.PendingChannelID,
-			acceptorResp.ChanAcceptError,
+			peer, msg.PendingChannelID, acceptorResp.Err,
 		)
 		return
 	}
