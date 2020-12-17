@@ -15,6 +15,8 @@ type ErrorData []byte
 // format is purposefully general in order to allow expression of a wide array
 // of possible errors. Each Error message is directed at a particular open
 // channel referenced by ChannelPoint.
+//
+// Deprecated: use CodedError
 type Error struct {
 	// ChanID references the active channel in which the error occurred
 	// within. If the ChanID is all zeros, then this error applies to the
