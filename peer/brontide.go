@@ -788,14 +788,14 @@ func (p *Brontide) addLink(chanPoint *wire.OutPoint,
 	// onChannelFailure will be called by the link in case the channel
 	// fails for some reason.
 	onChannelFailure := func(chanID lnwire.ChannelID,
-		shortChanID lnwire.ShortChannelID,
-		linkErr htlcswitch.LinkFailureError) {
+		shortChanID lnwire.ShortChannelID, linkErr error, sender bool) {
 
 		failure := linkFailureReport{
 			chanPoint:   *chanPoint,
 			chanID:      chanID,
 			shortChanID: shortChanID,
 			linkErr:     linkErr,
+			sender:      sender,
 		}
 
 		select {
@@ -2563,7 +2563,8 @@ type linkFailureReport struct {
 	chanPoint   wire.OutPoint
 	chanID      lnwire.ChannelID
 	shortChanID lnwire.ShortChannelID
-	linkErr     htlcswitch.LinkFailureError
+	sender      bool
+	linkErr     error
 }
 
 // handleLinkFailure processes a link failure report when a link in the switch
@@ -2571,12 +2572,12 @@ type linkFailureReport struct {
 // force closing the channel depending on severity, and sending the error
 // message back to the remote party.
 func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
-	// Retrieve the channel from the map of active channels. We do this to
+	/* Retrieve the channel from the map of active channels. We do this to
 	// have access to it even after WipeChannel remove it from the map.
 	chanID := lnwire.NewChanIDFromOutPoint(&failure.chanPoint)
 	p.activeChanMtx.Lock()
 	lnChan := p.activeChannels[chanID]
-	p.activeChanMtx.Unlock()
+	p.activeChanMtx.Unlock()*/
 
 	// We begin by wiping the link, which will remove it from the switch,
 	// such that it won't be attempted used for any more updates.
@@ -2587,9 +2588,23 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 	// being applied.
 	p.WipeChannel(&failure.chanPoint)
 
+	// Examine the error we have for this link. If we do not have a spec
+	// defined error, then we do not send any errors to the peer.
+	peerErr, ok := failure.linkErr.(*lnwire.CodedError)
+	if !ok {
+		return
+	}
+
+	// Figure out whether we need to force close based on our error code and
+	// whether this is an error we are sending or receiving.
+	forceClose := peerErr.RecipientForceClose()
+	if failure.sender {
+		forceClose = peerErr.SenderForceClose()
+	}
+
 	// If the error encountered was severe enough, we'll now force close the
 	// channel to prevent reading it to the switch in the future.
-	if failure.linkErr.ForceClose {
+	if forceClose {
 		peerLog.Warnf("Force closing link(%v)",
 			failure.shortChanID)
 
@@ -2606,8 +2621,9 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 		}
 	}
 
-	// If this is a permanent failure, we will mark the channel borked.
-	if failure.linkErr.PermanentFailure && lnChan != nil {
+	// TODO(carla): how would we describe bork but not close in the spec?
+	/* If this is a permanent failure, we will mark the channel borked.
+	if markBorked && lnChan != nil {
 		peerLog.Warnf("Marking link(%v) borked due to permanent "+
 			"failure", failure.shortChanID)
 
@@ -2615,25 +2631,12 @@ func (p *Brontide) handleLinkFailure(failure linkFailureReport) {
 			peerLog.Errorf("Unable to mark channel %v borked: %v",
 				failure.shortChanID, err)
 		}
-	}
+	}*/
 
-	// Send an error to the peer, why we failed the channel.
-	if failure.linkErr.ShouldSendToPeer() {
-		// If SendData is set, send it to the peer. If not, we'll use
-		// the standard error messages in the payload. We only include
-		// sendData in the cases where the error data does not contain
-		// sensitive information.
-		data := []byte(failure.linkErr.Error())
-		if failure.linkErr.SendData != nil {
-			data = failure.linkErr.SendData
-		}
-
-		err := lnwire.NewGenericError(failure.chanID, data, false)
-
-		if err != nil {
-			peerLog.Errorf("unable to send msg to "+
-				"remote peer: %v", err)
-		}
+	// We send all spec-defined errors to our peer.
+	if err := p.SendMessage(true, peerErr); err != nil {
+		peerLog.Errorf("unable to send msg to "+
+			"remote peer: %v", err)
 	}
 }
 

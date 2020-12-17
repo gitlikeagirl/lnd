@@ -74,6 +74,12 @@ func (c *CodedError) Decode(r io.Reader, pver uint32) error {
 	case ErrorCodePermanent:
 		c.ErrorMetadata = &StringError{}
 
+	case ErrorCodeInvalidCommitSig:
+		c.ErrorMetadata = &InvalidSigMetadata{}
+
+	case ErrorCodeInvalidHtlcSig:
+		c.ErrorMetadata = &InvalidHtlcSigMetadata{}
+
 	default:
 		// If we have an unknown even error code, we should fail.
 		if c.ErrorCode%2 == 0 {
@@ -105,6 +111,35 @@ func (c *CodedError) MaxPayloadLength(uint32) uint32 {
 	return 65535
 }
 
+// SenderForceClose returns a boolean that indicates whether we should force
+// close a channel based on the error code we are sending the error to our peer.
+func (c *CodedError) SenderForceClose() bool {
+	switch c.ErrorCode {
+	// TODO(carla): do we also want to force close on invalid htlc fail?
+	// since we do it for settle
+	case ErrorCodePermanent, ErrorCodeRemoteDataLoss,
+		ErrorCodeInvalidCommitSecret, ErrorCodeInvalidSettle,
+		ErrorCodeInvalidHtlcSig, ErrorCodeInvalidCommitSig:
+
+		return true
+
+	default:
+		return false
+	}
+}
+
+// RecipientForceClose returns a boolean that indicates whether we should force
+// close a channel on receipt an error based on its code.
+func (c *CodedError) RecipientForceClose() bool {
+	switch c.ErrorCode {
+	case ErrorCodeLocalDataLoss, ErrorCodeInvalidUnrevoked:
+		return true
+
+	default:
+		return false
+	}
+}
+
 // ErrorMetadata is an interface that is implemented by the different types
 // of errors.
 type ErrorMetadata interface {
@@ -133,6 +168,40 @@ func NewGenericError(id ChannelID, value ErrorData,
 		ErrorCode: code,
 		ErrorMetadata: &StringError{
 			Value: value,
+		},
+	}
+}
+
+// NewCodedError is a constructor which can be used to create any coded error
+// that does not have any metadata.
+func NewCodedError(chanID ChannelID, code ErrorCode) *CodedError {
+	return &CodedError{
+		ChannelID: chanID,
+		ErrorCode: code,
+	}
+}
+
+// NewCommitSigError returns a commit sig error.
+func NewCommitSigError(chanID ChannelID, commitHeight uint64) *CodedError {
+	return &CodedError{
+		ChannelID: chanID,
+		ErrorCode: ErrorCodeInvalidCommitSig,
+		ErrorMetadata: &InvalidSigMetadata{
+			commitHeight: commitHeight,
+		},
+	}
+}
+
+// NewHtlcSigError returns an invalid htlc sig error.
+func NewHtlcSigError(chanID ChannelID, commitHeight,
+	htlcIndex uint64) *CodedError {
+
+	return &CodedError{
+		ChannelID: chanID,
+		ErrorCode: ErrorCodeInvalidHtlcSig,
+		ErrorMetadata: &InvalidHtlcSigMetadata{
+			commitHeight: commitHeight,
+			htlcIndex:    htlcIndex,
 		},
 	}
 }

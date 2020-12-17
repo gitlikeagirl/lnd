@@ -4235,6 +4235,12 @@ func (i *InvalidCommitSigError) Error() string {
 		i.commitSig[:], i.commitTx, i.sigHash[:])
 }
 
+// CommitHeight returns the commit height of an invalid sig error.
+// TODO(carla): export fields in separate commit rather than getter?
+func (i *InvalidCommitSigError) CommitHeight() uint64 {
+	return i.commitHeight
+}
+
 // A compile time flag to ensure that InvalidCommitSigError implements the
 // error interface.
 var _ error = (*InvalidCommitSigError)(nil)
@@ -4262,6 +4268,16 @@ func (i *InvalidHtlcSigError) Error() string {
 	return fmt.Sprintf("rejected commitment: commit_height=%v, "+
 		"invalid_htlc_sig=%x, commit_tx=%x, sig_hash=%x", i.commitHeight,
 		i.htlcSig, i.commitTx, i.sigHash[:])
+}
+
+// CommitHeight returns the commit height of an invalid htlc sig error.
+func (i *InvalidHtlcSigError) CommitHeight() uint64 {
+	return i.commitHeight
+}
+
+// HtlcIndex returns the htlc index height of an invalid htlc sig error.
+func (i *InvalidHtlcSigError) HtlcIndex() uint64 {
+	return i.htlcIndex
 }
 
 // A compile time flag to ensure that InvalidCommitSigError implements the

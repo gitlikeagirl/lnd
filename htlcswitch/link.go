@@ -175,13 +175,13 @@ type ChannelLinkConfig struct {
 
 	// OnChannelFailure is a function closure that we'll call if the
 	// channel failed for some reason. Depending on the severity of the
-	// error, the closure potentially must force close this channel and
-	// disconnect the peer.
+	// error and whether we're sending/receiving the error, the closure
+	// potentially must force close this channel and disconnect the peer.
 	//
 	// NOTE: The method must return in order for the ChannelLink to be able
 	// to shut down properly.
-	OnChannelFailure func(lnwire.ChannelID, lnwire.ShortChannelID,
-		LinkFailureError)
+	OnChannelFailure func(lnwire.ChannelID, lnwire.ShortChannelID, error,
+		bool)
 
 	// UpdateContractSignals is a function closure that we'll use to update
 	// outside sub-systems with the latest signals for our inner Lightning
@@ -926,88 +926,7 @@ func (l *channelLink) htlcManager() {
 	if l.cfg.SyncStates {
 		err := l.syncChanStates()
 		if err != nil {
-			l.log.Warnf("error when syncing channel states: %v", err)
-
-			errDataLoss, localDataLoss :=
-				err.(*lnwallet.ErrCommitSyncLocalDataLoss)
-
-			switch {
-			case err == ErrLinkShuttingDown:
-				l.log.Debugf("unable to sync channel states, " +
-					"link is shutting down")
-				return
-
-			// We failed syncing the commit chains, probably
-			// because the remote has lost state. We should force
-			// close the channel.
-			case err == lnwallet.ErrCommitSyncRemoteDataLoss:
-				fallthrough
-
-			// The remote sent us an invalid last commit secret, we
-			// should force close the channel.
-			// TODO(halseth): and permanently ban the peer?
-			case err == lnwallet.ErrInvalidLastCommitSecret:
-				fallthrough
-
-			// The remote sent us a commit point different from
-			// what they sent us before.
-			// TODO(halseth): ban peer?
-			case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
-				// We'll fail the link and tell the peer to
-				// force close the channel. Note that the
-				// database state is not updated here, but will
-				// be updated when the close transaction is
-				// ready to avoid that we go down before
-				// storing the transaction in the db.
-				l.fail(
-					LinkFailureError{
-						code:       ErrSyncError,
-						ForceClose: true,
-					},
-					"unable to synchronize channel "+
-						"states: %v", err,
-				)
-				return
-
-			// We have lost state and cannot safely force close the
-			// channel. Fail the channel and wait for the remote to
-			// hopefully force close it. The remote has sent us its
-			// latest unrevoked commitment point, and we'll store
-			// it in the database, such that we can attempt to
-			// recover the funds if the remote force closes the
-			// channel.
-			case localDataLoss:
-				err := l.channel.MarkDataLoss(
-					errDataLoss.CommitPoint,
-				)
-				if err != nil {
-					l.log.Errorf("unable to mark channel "+
-						"data loss: %v", err)
-				}
-
-			// We determined the commit chains were not possible to
-			// sync. We cautiously fail the channel, but don't
-			// force close.
-			// TODO(halseth): can we safely force close in any
-			// cases where this error is returned?
-			case err == lnwallet.ErrCannotSyncCommitChains:
-				if err := l.channel.MarkBorked(); err != nil {
-					l.log.Errorf("unable to mark channel "+
-						"borked: %v", err)
-				}
-
-			// Other, unspecified error.
-			default:
-			}
-
-			l.fail(
-				LinkFailureError{
-					code:       ErrRecoveryError,
-					ForceClose: false,
-				},
-				"unable to synchronize channel "+
-					"states: %v", err,
-			)
+			l.handleSyncError(err)
 			return
 		}
 	}
@@ -1038,8 +957,12 @@ func (l *channelLink) htlcManager() {
 	// reforward.
 	if l.ShortChanID() != hop.Source {
 		if err := l.resolveFwdPkgs(); err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
-				"unable to resolve fwd pkgs: %v", err)
+			linkFailure := lnwire.NewGenericError(
+				l.ChanID(), nil, true,
+			)
+
+			l.fail(linkFailure, true, "unable to resolve fwd "+
+				"pkgs: %v", err)
 			return
 		}
 
@@ -1140,8 +1063,12 @@ func (l *channelLink) htlcManager() {
 			}
 
 		case <-l.cfg.PendingCommitTicker.Ticks():
-			l.fail(LinkFailureError{code: ErrRemoteUnresponsive},
-				"unable to complete dance")
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(),
+				lnwire.ErrorCodeRemoteUnresponsive,
+			)
+
+			l.fail(linkFailure, true, "unable to complete dance")
 			return
 
 		// A message from the switch was just received. This indicates
@@ -1166,10 +1093,12 @@ func (l *channelLink) htlcManager() {
 			htlcResolution := hodlItem.(invoices.HtlcResolution)
 			err := l.processHodlQueue(htlcResolution)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					fmt.Sprintf("process hodl queue: %v",
-						err.Error()),
+				linkFailure := lnwire.NewGenericError(
+					l.ChanID(), nil, true,
 				)
+
+				l.fail(linkFailure, true, fmt.Sprintf("process "+
+					"hodl queue: %v", err.Error()))
 				return
 			}
 
@@ -1177,6 +1106,94 @@ func (l *channelLink) htlcManager() {
 			return
 		}
 	}
+}
+
+// handleSyncError handles non-nil errors returned while trying to sync channel
+// state.
+func (l *channelLink) handleSyncError(err error) {
+	var (
+		wireError *lnwire.CodedError
+
+		errDataLoss,
+		localDataLoss = err.(*lnwallet.ErrCommitSyncLocalDataLoss)
+	)
+
+	switch {
+	case err == ErrLinkShuttingDown:
+		l.log.Debugf("unable to sync channel states, link is " +
+			"shutting down")
+
+	// We failed syncing the commit chains, probably because the remote has
+	// lost state. We should force close the channel.
+	case err == lnwallet.ErrCommitSyncRemoteDataLoss:
+		wireError = lnwire.NewCodedError(
+			l.ChanID(), lnwire.ErrorCodeRemoteDataLoss,
+		)
+
+	// The remote sent us an invalid last commit secret, we should force
+	// close the channel.
+	// TODO(halseth): and permanently ban the peer?
+	case err == lnwallet.ErrInvalidLastCommitSecret:
+		wireError = lnwire.NewCodedError(
+			l.ChanID(), lnwire.ErrorCodeInvalidCommitSecret,
+		)
+
+	// The remote sent us a commit point different from what they sent us
+	// before.
+	// TODO(halseth): ban peer?
+	case err == lnwallet.ErrInvalidLocalUnrevokedCommitPoint:
+		wireError = lnwire.NewCodedError(
+			l.ChanID(), lnwire.ErrorCodeInvalidUnrevoked,
+		)
+
+	// We have lost state and cannot safely force close the channel. Fail
+	// the channel and wait for the remote to hopefully force close it. The
+	// remote has sent us its latest unrevoked commitment point, and we'll
+	// store it in the database, such that we can attempt to recover the
+	// funds if the remote force closes the channel.
+	case localDataLoss:
+		err := l.channel.MarkDataLoss(
+			errDataLoss.CommitPoint,
+		)
+		if err != nil {
+			l.log.Errorf("unable to mark channel data loss: %v",
+				err)
+		}
+
+		wireError = lnwire.NewCodedError(
+			l.ChanID(), lnwire.ErrorCodeLocalDataLoss,
+		)
+
+	// We determined the commit chains were not possible to sync. We
+	// cautiously fail the channel, but don't force close.
+	// TODO(halseth): can we safely force close in any cases where this
+	// error is returned?
+	case err == lnwallet.ErrCannotSyncCommitChains:
+		if err := l.channel.MarkBorked(); err != nil {
+			l.log.Errorf("unable to mark channel "+
+				"borked: %v", err)
+		}
+
+		wireError = lnwire.NewCodedError(
+			l.ChanID(), lnwire.ErrorCodeLocalDataLoss,
+		)
+
+	// Other, unspecified error, we just send a temporary error.
+	default:
+		wireError = lnwire.NewGenericError(
+			l.ChanID(), nil, true,
+		)
+	}
+
+	// If we have no error to send the peer, just return.
+	if wireError == nil {
+		return
+	}
+
+	l.fail(
+		wireError, true, "unable to synchronize channel states: %v",
+		err,
+	)
 }
 
 // processHodlQueue processes a received htlc resolution and continues reading
@@ -1621,8 +1638,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// "settle" list in the event that we know the preimage.
 		index, err := l.channel.ReceiveHTLC(msg)
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
-				"unable to handle upstream add HTLC: %v", err)
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(), lnwire.ErrorCodeInvalidHtlcUpdate,
+			)
+
+			l.fail(linkFailure, true, "unable to handle "+
+				"upstream add HTLC: %v", err)
 			return
 		}
 
@@ -1633,13 +1654,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		pre := msg.PaymentPreimage
 		idx := msg.ID
 		if err := l.channel.ReceiveHTLCSettle(pre, idx); err != nil {
-			l.fail(
-				LinkFailureError{
-					code:       ErrInvalidUpdate,
-					ForceClose: true,
-				},
-				"unable to handle upstream settle HTLC: %v", err,
+			// TODO(carla): previously we force closed here?
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(), lnwire.ErrorCodeInvalidSettle,
 			)
+
+			l.fail(linkFailure, true, "unable to handle "+
+				"upstream settle HTLC: %v", err)
 			return
 		}
 
@@ -1709,8 +1730,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// message to the usual HTLC fail message.
 		err := l.channel.ReceiveFailHTLC(msg.ID, b.Bytes())
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
-				"unable to handle upstream fail HTLC: %v", err)
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(),
+				lnwire.ErrorCodeInvalidFail,
+			)
+
+			l.fail(linkFailure, true, "unable to handle "+
+				"upstream fail HTLC: %v", err)
 			return
 		}
 
@@ -1718,8 +1744,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		idx := msg.ID
 		err := l.channel.ReceiveFailHTLC(idx, msg.Reason[:])
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
-				"unable to handle upstream fail HTLC: %v", err)
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(), lnwire.ErrorCodeInvalidFail,
+			)
+
+			l.fail(linkFailure, true, "unable to handle upstream "+
+				"fail HTLC: %v", err,
+			)
 			return
 		}
 
@@ -1737,10 +1768,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			l.uncommittedPreimages...,
 		)
 		if err != nil {
-			l.fail(
-				LinkFailureError{code: ErrInternalError},
-				"unable to add preimages=%v to cache: %v",
-				l.uncommittedPreimages, err,
+			linkFailure := lnwire.NewGenericError(
+				l.ChanID(), nil, true,
+			)
+
+			l.fail(linkFailure, true, "unable to add preimages=%v "+
+				"to cache: %v", l.uncommittedPreimages, err,
 			)
 			return
 		}
@@ -1762,21 +1795,31 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 			// commitment, then we'll examine the type of error. If
 			// it's an InvalidCommitSigError, then we'll send a
 			// direct error.
-			var sendData []byte
-			switch err.(type) {
+			var wireError *lnwire.CodedError
+			switch e := err.(type) {
 			case *lnwallet.InvalidCommitSigError:
-				sendData = []byte(err.Error())
+				wireError = lnwire.NewCommitSigError(
+					l.ChanID(), e.CommitHeight(),
+				)
+
 			case *lnwallet.InvalidHtlcSigError:
-				sendData = []byte(err.Error())
+				wireError = lnwire.NewHtlcSigError(
+					l.ChanID(), e.CommitHeight(),
+					e.HtlcIndex(),
+				)
+
+			// If our error was not an invalid sig error, we just
+			// send a generic temporary error, because we're failed
+			// to receive the commitment.
+			default:
+				wireError = lnwire.NewGenericError(
+					l.ChanID(), nil, false,
+				)
 			}
+
 			l.fail(
-				LinkFailureError{
-					code:       ErrInvalidCommitment,
-					ForceClose: true,
-					SendData:   sendData,
-				},
-				"ChannelPoint(%v): unable to accept new "+
-					"commitment: %v",
+				wireError, true, "ChannelPoint(%v): unable to "+
+					"accept new commitment: %v",
 				l.channel.ChannelPoint(), err,
 			)
 			return
@@ -1827,8 +1870,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		)
 		if err != nil {
 			// TODO(halseth): force close?
-			l.fail(LinkFailureError{code: ErrInvalidRevocation},
-				"unable to accept revocation: %v", err)
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(),
+				lnwire.ErrorCodeInvalidRevocation,
+			)
+
+			l.fail(linkFailure, true, "unable to accept "+
+				"revocation: %v", err)
 			return
 		}
 
@@ -1851,8 +1899,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				state, state.RemoteCommitment.CommitHeight-1, 0,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"failed to load breach info: %v", err)
+				linkFailure := lnwire.NewGenericError(
+					l.ChanID(), nil, true,
+				)
+
+				l.fail(linkFailure, true, "failed to load "+
+					"breach info: %v", err)
 				return
 			}
 
@@ -1861,8 +1913,12 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 				&chanID, breachInfo, state.ChanType,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					"unable to queue breach backup: %v", err)
+				linkFailure := lnwire.NewGenericError(
+					l.ChanID(), nil, true,
+				)
+
+				l.fail(linkFailure, true, "unable to queue "+
+					"breach backup: %v", err)
 				return
 			}
 		}
@@ -1895,8 +1951,13 @@ func (l *channelLink) handleUpstreamMsg(msg lnwire.Message) {
 		// will fail the channel, if not we will apply the update.
 		fee := chainfee.SatPerKWeight(msg.FeePerKw)
 		if err := l.channel.ReceiveUpdateFee(fee); err != nil {
-			l.fail(LinkFailureError{code: ErrInvalidUpdate},
-				"error receiving fee update: %v", err)
+			// TODO(carla): fee update initiator err?
+			linkFailure := lnwire.NewCodedError(
+				l.ChanID(), lnwire.ErrorCodeInvalidFeeUpdate,
+			)
+
+			l.fail(linkFailure, true, "error receiving fee "+
+				"update: %v", err)
 			return
 		}
 
@@ -1936,11 +1997,7 @@ func (l *channelLink) handleCodedError(err *lnwire.CodedError) {
 	}
 
 	l.fail(
-		LinkFailureError{
-			code:             ErrRemoteError,
-			PermanentFailure: true,
-		},
-		"ChannelPoint(%v): received error from peer: %v",
+		err, false, "ChannelPoint(%v): received error from peer: %v",
 		l.channel.ChannelPoint(), err.Error(),
 	)
 }
@@ -2006,8 +2063,11 @@ func (l *channelLink) ackDownStreamPackets() error {
 // the link.
 func (l *channelLink) updateCommitTxOrFail() bool {
 	if err := l.updateCommitTx(); err != nil {
-		l.fail(LinkFailureError{code: ErrInternalError},
-			"unable to update commitment: %v", err)
+		linkFailure := lnwire.NewGenericError(l.ChanID(), nil, true)
+
+		l.fail(
+			linkFailure, true, "unable to update commitment: %v", err,
+		)
 		return false
 	}
 
@@ -2621,8 +2681,14 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 		fwdPkg.ID(), decodeReqs,
 	)
 	if sphinxErr != nil {
-		l.fail(LinkFailureError{code: ErrInternalError},
-			"unable to decode hop iterators: %v", sphinxErr)
+		linkFaliure := lnwire.NewGenericError(
+			l.ChanID(), nil, true,
+		)
+
+		l.fail(
+			linkFaliure, true, "unable to decode hop iterators: "+
+				"%v", sphinxErr,
+		)
 		return
 	}
 
@@ -2724,9 +2790,10 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 				pd, obfuscator, fwdInfo, heightNow, pld,
 			)
 			if err != nil {
-				l.fail(LinkFailureError{code: ErrInternalError},
-					err.Error(),
+				linkFailure := lnwire.NewGenericError(
+					l.ChanID(), nil, true,
 				)
+				l.fail(linkFailure, true, err.Error())
 
 				return
 			}
@@ -2862,8 +2929,12 @@ func (l *channelLink) processRemoteAdds(fwdPkg *channeldb.FwdPkg,
 	if fwdPkg.State == channeldb.FwdStateLockedIn {
 		err := l.channel.SetFwdFilter(fwdPkg.Height, fwdPkg.FwdFilter)
 		if err != nil {
-			l.fail(LinkFailureError{code: ErrInternalError},
-				"unable to set fwd filter: %v", err)
+			linkFailure := lnwire.NewGenericError(
+				l.ChanID(), nil, true,
+			)
+
+			l.fail(linkFailure, true, "unable to set fwd "+
+				"filter: %v", err)
 			return
 		}
 	}
@@ -3102,12 +3173,13 @@ func (l *channelLink) sendMalformedHTLCError(htlcIndex uint64,
 }
 
 // fail is a function which is used to encapsulate the action necessary for
-// properly failing the link. It takes a LinkFailureError, which will be passed
-// to the OnChannelFailure closure, in order for it to determine if we should
-// force close the channel, and if we should send an error message to the
-// remote peer.
-func (l *channelLink) fail(linkErr LinkFailureError,
+// properly failing the link. It takes a link error and a boolean indicating
+// whether we are sending the error to our peer (if false, we received the
+// error). The combination of error code and sender boolean are passed to
+// OnChannelFailure to determine whether to force close the channel.
+func (l *channelLink) fail(linkErr error, sender bool,
 	format string, a ...interface{}) {
+
 	reason := errors.Errorf(format, a...)
 
 	// Return if we have already notified about a failure.
@@ -3122,5 +3194,5 @@ func (l *channelLink) fail(linkErr LinkFailureError,
 	// Set failed, such that we won't process any more updates, and notify
 	// the peer about the failure.
 	l.failed = true
-	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr)
+	l.cfg.OnChannelFailure(l.ChanID(), l.ShortChanID(), linkErr, sender)
 }
