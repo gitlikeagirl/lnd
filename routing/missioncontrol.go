@@ -221,6 +221,9 @@ func NewMissionControl(db kvdb.Backend, self route.Vertex,
 func (m *MissionControl) init() error {
 	log.Debugf("Mission control state reconstruction started")
 
+	m.Lock()
+	defer m.Unlock()
+
 	start := time.Now()
 
 	results, err := m.store.fetchAll()
@@ -308,11 +311,15 @@ func (m *MissionControl) GetPairHistorySnapshot(
 // ReportPaymentFail reports a failed payment to mission control as input for
 // future probability estimates. The failureSourceIdx argument indicates the
 // failure source. If it is nil, the failure source is unknown. This function
+
 // returns a reason if this failure is a final failure. In that case no further
 // payment attempts need to be made.
 func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 	failureSourceIdx *int, failure lnwire.FailureMessage) (
 	*channeldb.FailureReason, error) {
+
+	m.Lock()
+	defer m.Unlock()
 
 	timestamp := m.now()
 
@@ -333,6 +340,9 @@ func (m *MissionControl) ReportPaymentFail(paymentID uint64, rt *route.Route,
 // for future probability estimates.
 func (m *MissionControl) ReportPaymentSuccess(paymentID uint64,
 	rt *route.Route) error {
+
+	m.Lock()
+	defer m.Unlock()
 
 	timestamp := m.now()
 
@@ -375,10 +385,6 @@ func (m *MissionControl) applyPaymentResult(
 		result.route, result.success, result.failureSourceIdx,
 		result.failure,
 	)
-
-	// Update mission control state using the interpretation.
-	m.Lock()
-	defer m.Unlock()
 
 	if i.policyFailure != nil {
 		if m.state.requestSecondChance(
