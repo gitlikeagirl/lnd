@@ -195,7 +195,7 @@ type rpcListeners func() ([]*ListenerWithSignal, func(), error)
 // validated main configuration struct and an optional listener config struct.
 // This function starts all main system components then blocks until a signal
 // is received on the shutdownChan at which point everything is shut down again.
-func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}, interceptor signal.Interceptor) error {
+func Main(cfg *Config, lisCfg ListenerCfg, interceptor signal.Interceptor) error {
 	defer func() {
 		ltndLog.Info("Shutdown complete\n")
 		err := cfg.LogWriter.Close()
@@ -381,7 +381,8 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}, interce
 	if !cfg.NoSeedBackup {
 		params, shutdown, err := waitForWalletPassword(
 			cfg, cfg.RESTListeners, serverOpts, restDialOpts,
-			restProxyDest, restListen, walletUnlockerListeners, shutdownChan,
+			restProxyDest, restListen, walletUnlockerListeners,
+			interceptor.ShutdownChannel,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to set up wallet password "+
@@ -832,7 +833,7 @@ func Main(cfg *Config, lisCfg ListenerCfg, shutdownChan <-chan struct{}, interce
 
 	// Wait for shutdown signal from either a graceful server stop or from
 	// the interrupt handler.
-	<-shutdownChan
+	<-interceptor.ShutdownChannel
 	return nil
 }
 

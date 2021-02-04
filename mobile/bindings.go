@@ -45,16 +45,17 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// LoadConfig below.
 	os.Args = append(os.Args, splitArgs...)
 
-	// Load the configuration, and parse the extra arguments as command
-	// line options. This function will also set up logging properly.
-	loadedConfig, err := lnd.LoadConfig()
+	// Hook interceptor for os signals.
+	interceptor, err := signal.Intercept()
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
 
-	// Hook interceptor for os signals.
-	if _, err := signal.Intercept(); err != nil {
+	// Load the configuration, and parse the extra arguments as command
+	// line options. This function will also set up logging properly.
+	loadedConfig, err := lnd.LoadConfig(interceptor)
+	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -82,8 +83,7 @@ func Start(extraArgs string, unlockerReady, rpcReady Callback) {
 	// Call the "real" main in a nested manner so the defers will properly
 	// be executed in the case of a graceful shutdown.
 	go func() {
-		if err := lnd.Main(
-			loadedConfig, cfg, signal.ShutdownChannel(),
+		if err := lnd.Main(loadedConfig, cfg, interceptor,
 		); err != nil {
 			if e, ok := err.(*flags.Error); ok &&
 				e.Type == flags.ErrHelp {
