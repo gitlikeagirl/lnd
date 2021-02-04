@@ -20,11 +20,12 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/mock"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/signal"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	testLog = build.NewSubLogger("SWPR_TEST", nil)
+	testLog = build.NewSubLogger("SWPR_TEST", signal.Interceptor{}, nil)
 
 	testMaxSweepAttempts = 3
 
