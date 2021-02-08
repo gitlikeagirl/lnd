@@ -4,7 +4,6 @@ import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/htlcswitch/hop"
-	"github.com/lightningnetwork/lnd/signal"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -14,7 +13,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	logger := build.NewSubLogger("HSWC", signal.Interceptor{}, nil)
+	logger := build.NewSubLogger("HSWC", nil)
 
 	UseLogger(logger)
 }

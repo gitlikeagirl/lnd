@@ -66,7 +66,7 @@ var (
 	// are replaced again later, once the final root logger is ready.
 	addLndPkgLogger = func(subsystem string) *replaceableLogger {
 		l := &replaceableLogger{
-			Logger:    build.NewSubLogger(subsystem, signal.Interceptor{}, nil),
+			Logger:    build.NewSubLogger(subsystem, nil),
 			subsystem: subsystem,
 		}
 		lndPkgLoggers = append(lndPkgLoggers, l)
@@ -87,12 +87,34 @@ var (
 	atplLog = addLndPkgLogger("ATPL")
 )
 
+func genSubLogger(root *build.RotatingLogWriter,
+	interceptor signal.Interceptor) func(string) btclog.Logger {
+
+	// Create a shutdown function which will request shutdown from our
+	// interceptor if it is listening.
+	shutdown := func() {
+		if !interceptor.Listening() {
+			return
+		}
+
+		interceptor.RequestShutdown()
+	}
+
+	// Return a function which will create a sublogger from our root
+	// logger with out shutdown fn.
+	return func(tag string) btclog.Logger {
+		return root.GenSubLogger(tag, shutdown)
+	}
+}
+
 // SetupLoggers initializes all package-global logger variables.
 func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor) {
+	genLogger := genSubLogger(root, interceptor)
+
 	// Now that we have the proper root logger, we can replace the
 	// placeholder lnd package loggers.
 	for _, l := range lndPkgLoggers {
-		l.Logger = build.NewSubLogger(l.subsystem, interceptor, root.GenSubLogger)
+		l.Logger = build.NewSubLogger(l.subsystem, genLogger)
 		SetSubLogger(root, l.subsystem, l.Logger)
 	}
 
@@ -143,9 +165,11 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 func AddSubLogger(root *build.RotatingLogWriter, subsystem string,
 	interceptor signal.Interceptor, useLoggers ...func(btclog.Logger)) {
 
+	genLogger := genSubLogger(root, interceptor)
+
 	// Create and register just a single logger to prevent them from
 	// overwriting each other internally.
-	logger := build.NewSubLogger(subsystem, interceptor, root.GenSubLogger)
+	logger := build.NewSubLogger(subsystem, genLogger)
 	SetSubLogger(root, subsystem, logger, useLoggers...)
 }
 

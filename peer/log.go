@@ -3,7 +3,6 @@ package peer
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/signal"
 )
 
 // peerLog is a logger that is initialized with the btclog.Disabled logger.
@@ -11,7 +10,7 @@ var peerLog btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("PEER", signal.Interceptor{}, nil))
+	UseLogger(build.NewSubLogger("PEER", nil))
 }
 
 // DisableLog disables all logging output.

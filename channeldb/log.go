@@ -9,7 +9,6 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb/migration13"
 	"github.com/lightningnetwork/lnd/channeldb/migration16"
 	"github.com/lightningnetwork/lnd/channeldb/migration_01_to_11"
-	"github.com/lightningnetwork/lnd/signal"
 )
 
 // log is a logger that is initialized with no output filters.  This
@@ -18,7 +17,7 @@ import (
 var log btclog.Logger
 
 func init() {
-	UseLogger(build.NewSubLogger("CHDB", signal.Interceptor{}, nil))
+	UseLogger(build.NewSubLogger("CHDB", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

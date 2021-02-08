@@ -3,7 +3,6 @@ package chainntnfs
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/signal"
 )
 
 // Log is a logger that is initialized with no output filters.  This
@@ -13,7 +12,7 @@ var Log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("NTFN", signal.Interceptor{}, nil))
+	UseLogger(build.NewSubLogger("NTFN", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

@@ -3,7 +3,6 @@ package watchtower
 import (
 	"github.com/btcsuite/btclog"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/watchtower/lookout"
 	"github.com/lightningnetwork/lnd/watchtower/wtserver"
 )
@@ -15,7 +14,7 @@ var log btclog.Logger
 
 // The default amount of logging is none.
 func init() {
-	UseLogger(build.NewSubLogger("WTWR", signal.Interceptor{}, nil))
+	UseLogger(build.NewSubLogger("WTWR", nil))
 }
 
 // DisableLog disables all library log output.  Logging output is disabled

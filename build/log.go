@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/btcsuite/btclog"
-	"github.com/lightningnetwork/lnd/signal"
 )
 
 // LogType is an indicating the type of logging specified by the build flag.
@@ -51,8 +50,8 @@ type LogWriter struct {
 // NewSubLogger constructs a new subsystem log from the current LogWriter
 // implementation. This is primarily intended for use with stdlog, as the actual
 // writer is shared amongst all instantiations.
-func NewSubLogger(subsystem string, interceptor signal.Interceptor,
-	genSubLogger func(string, func()) btclog.Logger) btclog.Logger {
+func NewSubLogger(subsystem string,
+	genSubLogger func(string) btclog.Logger) btclog.Logger {
 
 	switch Deployment {
 
@@ -61,13 +60,7 @@ func NewSubLogger(subsystem string, interceptor signal.Interceptor,
 	// disabled.
 	case Production:
 		if genSubLogger != nil {
-			return genSubLogger(subsystem, func() {
-				if !interceptor.Listening() {
-					return
-				}
-
-				interceptor.RequestShutdown()
-			})
+			return genSubLogger(subsystem)
 		}
 
 	// For development builds, we must handle two distinct types of logging:
@@ -80,13 +73,7 @@ func NewSubLogger(subsystem string, interceptor signal.Interceptor,
 		// production behavior.
 		case LogTypeDefault:
 			if genSubLogger != nil {
-				return genSubLogger(subsystem, func() {
-					if !interceptor.Listening() {
-						return
-					}
-
-					interceptor.RequestShutdown()
-				})
+				return genSubLogger(subsystem)
 			}
 
 		// Logging to stdout is used in unit tests. It is not important
