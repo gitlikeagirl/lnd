@@ -1059,15 +1059,14 @@ func (i *InvoiceRegistry) SettleHodlInvoice(preimage lntypes.Preimage) error {
 // CancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash.
 func (i *InvoiceRegistry) CancelInvoice(payHash lntypes.Hash) error {
-	return i.cancelInvoiceImpl(payHash, true)
+	return i.cancelInvoiceImpl(payHash)
 }
 
 // cancelInvoice attempts to cancel the invoice corresponding to the passed
 // payment hash. Accepted invoices will only be canceled if explicitly
 // requested to do so. It notifies subscribing links and resolvers that
 // the associated htlcs were canceled if they change state.
-func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
-	cancelAccepted bool) error {
+func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash) error {
 
 	i.Lock()
 	defer i.Unlock()
@@ -1077,12 +1076,6 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 
 	updateInvoice := func(invoice *channeldb.Invoice) (
 		*channeldb.InvoiceUpdateDesc, error) {
-
-		// Only cancel the invoice in ContractAccepted state if explicitly
-		// requested to do so.
-		if invoice.State == channeldb.ContractAccepted && !cancelAccepted {
-			return nil, nil
-		}
 
 		// Move invoice to the canceled state. Rely on validation in
 		// channeldb to return an error if the invoice is already
@@ -1105,13 +1098,6 @@ func (i *InvoiceRegistry) cancelInvoiceImpl(payHash lntypes.Hash,
 	}
 	if err != nil {
 		return err
-	}
-
-	// Return without cancellation if the invoice state is ContractAccepted.
-	if invoice.State == channeldb.ContractAccepted {
-		log.Debugf("Invoice%v: remains accepted as cancel wasn't"+
-			"explicitly requested.", ref)
-		return nil
 	}
 
 	log.Debugf("Invoice%v: canceled", ref)

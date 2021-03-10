@@ -22,7 +22,7 @@ COPY . /go/src/github.com/lightningnetwork/lnd
 
 RUN cd /go/src/github.com/lightningnetwork/lnd \
 &&  make \
-&&  make install tags="signrpc walletrpc chainrpc invoicesrpc"
+&&  make install tags="signrpc walletrpc chainrpc invoicesrpc dev monitoring"
 
 # Start a new, final image to reduce size.
 FROM alpine as final
@@ -38,6 +38,5 @@ COPY --from=builder /go/bin/lnd /bin/
 RUN apk add --no-cache \
     bash
 
-# Copy the entrypoint script.
-COPY "docker/lnd/start-lnd.sh" .
-RUN chmod +x start-lnd.sh
+# Specify the start command and entrypoint as the lnd daemon.
+ENTRYPOINT ["lnd"]
