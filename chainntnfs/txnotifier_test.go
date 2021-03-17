@@ -191,7 +191,7 @@ func TestTxNotifierRegistrationValidation(t *testing.T) {
 
 			_, err = n.RegisterSpend(
 				&chainntnfs.ZeroOutPoint, testCase.pkScript,
-				testCase.heightHint,
+				testCase.heightHint, false,
 			)
 			if err != testCase.err {
 				t.Fatalf("spend registration expected error "+
@@ -530,7 +530,7 @@ func TestTxNotifierFutureSpendDispatch(t *testing.T) {
 	// We'll start off by registering for a spend notification of an
 	// outpoint.
 	op := wire.OutPoint{Index: 1}
-	ntfn, err := n.RegisterSpend(&op, testRawScript, 1)
+	ntfn, err := n.RegisterSpend(&op, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -798,7 +798,7 @@ func TestTxNotifierHistoricalSpendDispatch(t *testing.T) {
 
 	// We'll register for a spend notification of the outpoint and ensure
 	// that a notification isn't dispatched.
-	ntfn, err := n.RegisterSpend(&spentOutpoint, testRawScript, 1)
+	ntfn, err := n.RegisterSpend(&spentOutpoint, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -926,7 +926,7 @@ func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 	// a historical spend rescan as it does not have a historical view of
 	// the chain.
 	op := wire.OutPoint{Index: 1}
-	ntfn1, err := n.RegisterSpend(&op, testRawScript, 1)
+	ntfn1, err := n.RegisterSpend(&op, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -937,7 +937,7 @@ func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 	// We'll register another spend notification for the same outpoint. This
 	// should not request a historical spend rescan since the first one is
 	// still pending.
-	ntfn2, err := n.RegisterSpend(&op, testRawScript, 1)
+	ntfn2, err := n.RegisterSpend(&op, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -963,7 +963,7 @@ func TestTxNotifierMultipleHistoricalSpendRescans(t *testing.T) {
 		t.Fatalf("unable to update spend details: %v", err)
 	}
 
-	ntfn3, err := n.RegisterSpend(&op, testRawScript, 1)
+	ntfn3, err := n.RegisterSpend(&op, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -1064,7 +1064,7 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	op := wire.OutPoint{Index: 1}
 	spendNtfns := make([]*chainntnfs.SpendRegistration, numNtfns)
 	for i := uint64(0); i < numNtfns; i++ {
-		ntfn, err := n.RegisterSpend(&op, testRawScript, 1)
+		ntfn, err := n.RegisterSpend(&op, testRawScript, 1, false)
 		if err != nil {
 			t.Fatalf("unable to register spend ntfn #%d: %v", i, err)
 		}
@@ -1114,7 +1114,7 @@ func TestTxNotifierMultipleHistoricalNtfns(t *testing.T) {
 	// cached, we'll register another client for the same outpoint. We
 	// should not see a historical rescan request and the spend notification
 	// should come through immediately.
-	extraSpendNtfn, err := n.RegisterSpend(&op, testRawScript, 1)
+	extraSpendNtfn, err := n.RegisterSpend(&op, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -1289,13 +1289,13 @@ func TestTxNotifierCancelSpend(t *testing.T) {
 	// We'll register two notification requests. Only the second one will be
 	// canceled.
 	op1 := wire.OutPoint{Index: 1}
-	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1)
+	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
 
 	op2 := wire.OutPoint{Index: 2}
-	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1)
+	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -1690,12 +1690,12 @@ func TestTxNotifierSpendReorg(t *testing.T) {
 	expectedSpendDetails2AfterReorg.SpendingHeight++
 
 	// We'll register for a spend notification for each outpoint above.
-	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1)
+	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
 
-	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1)
+	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -2065,12 +2065,12 @@ func TestTxNotifierSpendHintCache(t *testing.T) {
 
 	// Create two test outpoints and register them for spend notifications.
 	op1 := wire.OutPoint{Index: 1}
-	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1)
+	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend for op1: %v", err)
 	}
 	op2 := wire.OutPoint{Index: 2}
-	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1)
+	ntfn2, err := n.RegisterSpend(&op2, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend for op2: %v", err)
 	}
@@ -2247,7 +2247,7 @@ func TestTxNotifierSpendDuringHistoricalRescan(t *testing.T) {
 
 	// Create a test outpoint and register it for spend notifications.
 	op1 := wire.OutPoint{Index: 1}
-	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1)
+	ntfn1, err := n.RegisterSpend(&op1, testRawScript, 1, false)
 	if err != nil {
 		t.Fatalf("unable to register spend for op1: %v", err)
 	}
@@ -2444,11 +2444,15 @@ func TestTxNotifierNtfnDone(t *testing.T) {
 
 	// We'll start by creating two notification requests: one confirmation
 	// and one spend.
-	confNtfn, err := n.RegisterConf(&chainntnfs.ZeroHash, testRawScript, 1, 1)
+	confNtfn, err := n.RegisterConf(
+		&chainntnfs.ZeroHash, testRawScript, 1, 1,
+	)
 	if err != nil {
 		t.Fatalf("unable to register conf ntfn: %v", err)
 	}
-	spendNtfn, err := n.RegisterSpend(&chainntnfs.ZeroOutPoint, testRawScript, 1)
+	spendNtfn, err := n.RegisterSpend(
+		&chainntnfs.ZeroOutPoint, testRawScript, 1, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to register spend: %v", err)
 	}
@@ -2578,7 +2582,9 @@ func TestTxNotifierTearDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unable to register conf ntfn: %v", err)
 	}
-	spendNtfn, err := n.RegisterSpend(&chainntnfs.ZeroOutPoint, testRawScript, 1)
+	spendNtfn, err := n.RegisterSpend(
+		&chainntnfs.ZeroOutPoint, testRawScript, 1, false,
+	)
 	if err != nil {
 		t.Fatalf("unable to register spend ntfn: %v", err)
 	}
@@ -2620,7 +2626,9 @@ func TestTxNotifierTearDown(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected confirmation registration to fail")
 	}
-	_, err = n.RegisterSpend(&chainntnfs.ZeroOutPoint, testRawScript, 1)
+	_, err = n.RegisterSpend(
+		&chainntnfs.ZeroOutPoint, testRawScript, 1, false,
+	)
 	if err == nil {
 		t.Fatal("expected spend registration to fail")
 	}
