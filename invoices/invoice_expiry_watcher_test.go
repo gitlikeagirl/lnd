@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/queue"
 )
 
 // invoiceExpiryWatcherTest holds a test fixture and implements checks
@@ -157,7 +158,7 @@ func TestInvoiceExpiryWhenAddingMultipleInvoices(t *testing.T) {
 	t.Parallel()
 
 	test := newInvoiceExpiryWatcherTest(t, testTime, 5, 5)
-	var invoices []*timestampExpiry
+	var invoices []queue.PriorityQueueItem
 
 	for hash, invoice := range test.testData.expiredInvoices {
 		invoices = append(invoices, makeInvoiceExpiry(hash, invoice))
