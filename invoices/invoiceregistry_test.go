@@ -352,7 +352,11 @@ func TestSettleHoldInvoice(t *testing.T) {
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
+
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -521,7 +525,10 @@ func TestCancelHoldInvoice(t *testing.T) {
 		FinalCltvRejectDelta: testFinalCltvRejectDelta,
 		Clock:                clock.NewTestClock(testTime),
 	}
-	registry := NewRegistry(cdb, NewInvoiceExpiryWatcher(cfg.Clock), &cfg)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
+	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	err = registry.Start()
 	if err != nil {
@@ -942,7 +949,9 @@ func TestInvoiceExpiryWithRegistry(t *testing.T) {
 		Clock:                testClock,
 	}
 
-	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
 	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	// First prefill the Channel DB with some pre-existing invoices,
@@ -1043,7 +1052,9 @@ func TestOldInvoiceRemovalOnStart(t *testing.T) {
 		GcCanceledInvoicesOnStartup: true,
 	}
 
-	expiryWatcher := NewInvoiceExpiryWatcher(cfg.Clock)
+	expiryWatcher := NewInvoiceExpiryWatcher(
+		cfg.Clock, 0, uint32(testCurrentHeight), nil, newMockNotifier(),
+	)
 	registry := NewRegistry(cdb, expiryWatcher, &cfg)
 
 	// First prefill the Channel DB with some pre-existing expired invoices.

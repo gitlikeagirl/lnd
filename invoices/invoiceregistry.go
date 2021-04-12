@@ -949,6 +949,7 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 	var (
 		resolution        HtlcResolution
 		updateSubscribers bool
+		newExpiryHeights  []uint32
 	)
 	invoice, err := i.cdb.UpdateInvoice(
 		ctx.invoiceRef(),
@@ -964,8 +965,18 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			updateSubscribers = updateDesc != nil &&
 				updateDesc.State != nil
 
-			// Assign resolution to outer scope variable.
+			// Assign resolution to outer scope variable and make
+			// note of the htlc expiry heights that were added to
+			// this invoice.
 			resolution = res
+
+			if updateDesc != nil {
+				for _, htlc := range updateDesc.AddHtlcs {
+					newExpiryHeights = append(
+						newExpiryHeights, htlc.Expiry,
+					)
+				}
+			}
 
 			return updateDesc, nil
 		},
@@ -1092,6 +1103,12 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 			res.autoRelease = true
 
 		}
+
+		// Add any new htlcs to our expiry watcher so that we will
+		// expire the invoice rather than force-closing because we have
+		// an unresolved htlcs. This is required for hold invoices
+		// because they are not manually resolved.
+		i.expiryWatcher.addHtlcs(ctx.hash, newExpiryHeights)
 
 		i.hodlSubscribe(hodlChan, ctx.circuitKey)
 

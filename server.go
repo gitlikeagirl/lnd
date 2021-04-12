@@ -442,11 +442,6 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		readPool:       readPool,
 		chansToRestore: chansToRestore,
 
-		invoices: invoices.NewRegistry(
-			remoteChanDB, invoices.NewInvoiceExpiryWatcher(clock.NewDefaultClock()),
-			&registryConfig,
-		),
-
 		channelNotifier: channelnotifier.New(remoteChanDB),
 
 		identityECDH: nodeKeyECDH,
@@ -483,10 +478,20 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		subscribers: make(map[uint64]*preimageSubscriber),
 	}
 
-	_, currentHeight, err := s.cc.ChainIO.GetBestBlock()
+	currentHash, currentHeight, err := s.cc.ChainIO.GetBestBlock()
 	if err != nil {
 		return nil, err
 	}
+
+	// Create an invoice expiry watcher that will expire our own invoices
+	// once block before they trigger a force close.
+	expiryWatcher := invoices.NewInvoiceExpiryWatcher(
+		clock.NewDefaultClock(), lncfg.DefaultIncomingBroadcastDelta+1,
+		uint32(currentHeight), currentHash, cc.ChainNotifier,
+	)
+	s.invoices = invoices.NewRegistry(
+		remoteChanDB, expiryWatcher, &registryConfig,
+	)
 
 	s.htlcNotifier = htlcswitch.NewHtlcNotifier(time.Now)
 
