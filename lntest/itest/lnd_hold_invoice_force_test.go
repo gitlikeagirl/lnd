@@ -13,9 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testHoldInvoiceForceClose demonstrates that recipients of hold invoices
-// will not release active htlcs for their own invoices when they expire,
-// resulting in a force close of their channel.
+// testHoldInvoiceForceClose tests cancelation of accepted hold invoices which
+// would otherwise trigger force closes when they expire.
 func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -77,8 +76,9 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 
 	// Now we will mine blocks until the htlc expires, and wait for each
 	// node to sync to our latest height.
+	require.Greater(t.t, activeHtlc.ExpirationHeight, info.BlockHeight,
+		"htlc height sanity check failed")
 	blocksTillExpiry := activeHtlc.ExpirationHeight - info.BlockHeight
-	require.Greater(t.t, blocksTillExpiry, uint32(0))
 
 	mineBlocks(t, net, blocksTillExpiry, 0)
 	require.NoError(t.t, err)
@@ -86,25 +86,25 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
 	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
 
-	// We should have our force close tx in the mempool.
-	mineBlocks(t, net, 1, 1)
-
-	// At this point, Bob should have a pending force close channel as
-	// Alice has gone directly to chain.
+	// Our channel should not have been force closed, instead we expect our
+	// channel to still be open and our invoice to have been canceled before
+	// expiry.
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, net.Bob, 1,
-		func(channel *lnrpcForceCloseChannel) error {
-			numHtlcs := len(channel.PendingHtlcs)
-			if numHtlcs != 1 {
-				return fmt.Errorf("expected 1 htlc, got: "+
-					"%v", numHtlcs)
-			}
-
-			return nil
-		},
-	)
+	chanInfo, err := getChanInfo(ctxt, net.Alice)
 	require.NoError(t.t, err)
 
-	// Cleanup Alice's force close.
-	cleanupForceClose(t, net, net.Alice, chanPoint)
+	fundingTxID, err := lnrpc.GetChanPointFundingTxid(chanPoint)
+	require.NoError(t.t, err)
+	chanStr := fmt.Sprintf("%v:%v", fundingTxID, chanPoint.OutputIndex)
+	require.Equal(t.t, chanStr, chanInfo.ChannelPoint)
+
+	inv, err := net.Bob.LookupInvoice(ctxt, &lnrpc.PaymentHash{
+		RHash: payHash[:],
+	})
+	require.NoError(t.t, err)
+	require.Equal(t.t, lnrpc.Invoice_CANCELED, inv.State)
+
+	// Clean up the channel.
+	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
+	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, false)
 }
