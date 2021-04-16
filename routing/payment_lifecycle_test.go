@@ -649,7 +649,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard,
 			},
-			paymentErr: channeldb.ErrPaymentAlreadyFailed,
+			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
 	}
 

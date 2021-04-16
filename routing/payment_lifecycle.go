@@ -247,7 +247,19 @@ func (p *paymentLifecycle) resumePayment() ([32]byte, *route.Route, error) {
 
 		// We found a route to try, launch a new shard.
 		attempt, outcome, err := shardHandler.launchShard(rt)
-		if err != nil {
+		switch {
+		// We can get an already failed error in the case where we
+		// received a permanent failure while we were pathfinding for
+		// this shard. We know that we are in a terminal state, because
+		// we've received this error, so we can continue and wait for
+		// our remaining shards to complete.
+		case err == channeldb.ErrPaymentAlreadyFailed:
+			log.Infof("Payment: %v failed, abandoning shard",
+				p.paymentHash)
+
+			continue
+
+		case err != nil:
 			return [32]byte{}, nil, err
 		}
 
