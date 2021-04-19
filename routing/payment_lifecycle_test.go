@@ -649,7 +649,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard,
 			},
-			paymentErr: channeldb.ErrPaymentTerminal,
+			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
 		{
 			// A MP payment scenario when our path finding returns
@@ -699,7 +699,7 @@ func TestRouterPaymentStateMachine(t *testing.T) {
 			routes: []*route.Route{
 				shard, shard, shard, shard,
 			},
-			paymentErr: channeldb.ErrPaymentTerminal,
+			paymentErr: channeldb.FailureReasonPaymentDetails,
 		},
 	}
 

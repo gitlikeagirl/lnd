@@ -328,7 +328,7 @@ func (m *mockControlTower) RegisterAttempt(phash lntypes.Hash,
 	if settled || failed {
 		return channeldb.ErrPaymentTerminal
 	}
-	
+
 	if settled && !inFlight {
 		return channeldb.ErrPaymentAlreadySucceeded
 	}
