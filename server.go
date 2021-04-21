@@ -3821,3 +3821,5 @@ func newSweepPkScriptGen(
 		return txscript.PayToAddrScript(sweepAddr)
 	}
 }
+
+// canary
