@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
@@ -82,19 +83,37 @@ func testHoldInvoiceForceClose(net *lntest.NetworkHarness, t *harnessTest) {
 		"expected expiry after current height")
 	blocksTillExpiry := activeHtlc.ExpirationHeight - info.BlockHeight
 
-	mineBlocks(t, net, blocksTillExpiry, 0)
-	require.NoError(t.t, err)
+	// Alice will go to chain with some delta, sanity check that we won't
+	// underflow and subtract this from our mined blocks.
+	require.Greater(t.t, blocksTillExpiry,
+		uint32(lncfg.DefaultOutgoingBroadcastDelta))
+	blocksTillForce := blocksTillExpiry - lncfg.DefaultOutgoingBroadcastDelta
+
+	mineBlocks(t, net, blocksTillForce, 0)
 
 	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
 	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
 
+	// Alice should have a waiting-close channel because she has force
+	// closed to time out the htlc.
+	assertNumPendingChannels(t, net.Alice, 1, 0)
+
 	// We should have our force close tx in the mempool.
 	mineBlocks(t, net, 1, 1)
 
-	// At this point, Bob should have a pending force close channel as
-	// Alice has gone directly to chain.
+	// Ensure alice and bob are synced to chain after we've mined our force
+	// close.
+	require.NoError(t.t, net.Alice.WaitForBlockchainSync(ctxb))
+	require.NoError(t.t, net.Bob.WaitForBlockchainSync(ctxb))
+
+	// At this point, Bob's channel should be resolved because his htlc is
+	// expired, so no further action is required. Alice will still have a
+	// pending force close channel because she needs to resolve the htlc.
+	assertNumPendingChannels(t, net.Alice, 0, 1)
+	assertNumPendingChannels(t, net.Bob, 0, 0)
+
 	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
-	err = waitForNumChannelPendingForceClose(ctxt, net.Bob, 1,
+	err = waitForNumChannelPendingForceClose(ctxt, net.Alice, 1,
 		func(channel *lnrpcForceCloseChannel) error {
 			numHtlcs := len(channel.PendingHtlcs)
 			if numHtlcs != 1 {
