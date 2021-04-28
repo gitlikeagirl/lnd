@@ -273,3 +273,5 @@
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeInvoices]: context canceled
 <time> [ERR] RPCS: [/lnrpc.Lightning/SubscribeChannelGraph]: context deadline exceeded
 <time> [ERR] RPCS: [/invoicesrpc.Invoices/SubscribeSingleInvoice]: context canceled
+<time> [ERR] INVC: SettleHodlInvoice with preimage <hex>: invoice already canceled
+<time> [ERR] RPCS: [/invoicesrpc.Invoices/SettleInvoice]: invoice already canceled
