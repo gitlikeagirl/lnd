@@ -1107,13 +1107,14 @@ func (i *InvoiceRegistry) notifyExitHopHtlcLocked(
 
 		}
 
-		// Add our lowest htlc expiry height to our expiry watcher so
-		// that we will expire the invoice rather than force-closing
-		// because we have an unresolved htlcs. This is required for
-		// hold invoices because they are not manually resolved. Only
-		// do this if we have new htlcs added on this update.
-		if minExpiryHeight > 0 {
-			i.expiryWatcher.addHtlcs(ctx.hash, minExpiryHeight)
+		// If we have fully accepted the set of htlcs for this invoice,
+		// we can now add it to our invoice expiry watcher. We do not
+		// add invoices before they are fully accepted, because it is
+		// possible that we MppTimeout the htlcs, and then our expiry
+		// height could change.
+		if res.outcome == resultAccepted {
+			expiry := makeInvoiceExpiry(ctx.hash, invoice)
+			i.expiryWatcher.AddInvoices(expiry)
 		}
 
 		i.hodlSubscribe(hodlChan, ctx.circuitKey)

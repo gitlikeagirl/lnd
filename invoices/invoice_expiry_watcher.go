@@ -184,7 +184,17 @@ func makeInvoiceExpiry(paymentHash lntypes.Hash,
 	// If we have an open invoice with no htlcs, we want to expire the
 	// invoice based on timestamp
 	case channeldb.ContractOpen:
-		return makeTimestampExpiry(paymentHash, invoice)
+		htlcCount := len(invoice.Htlcs)
+
+		if htlcCount == 0 {
+			return makeTimestampExpiry(paymentHash, invoice)
+		}
+
+		log.Debugf("Open MPP invoice: %v has %v accepted htlcs, "+
+			"waiting for full set of htlcs to arrive before "+
+			"adding to expiry watcher", paymentHash, htlcCount)
+
+		return nil
 
 	// If an invoice has active htlcs, we want to expire it based on block
 	// height. We only do this for hodl invoices, since regular invoices
@@ -267,30 +277,6 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(invoices ...invoiceExpiry) {
 	case ew.newInvoices <- invoices:
 		log.Debugf("Added %d invoices to the expiry watcher",
 			len(invoices))
-
-	// Select on quit too so that callers won't get blocked in case
-	// of concurrent shutdown.
-	case <-ew.quit:
-	}
-}
-
-// addHtlcs adds a height-based expiry entry for an invoice, using the lowest
-// htlc height available to expire the invoice. This should be used to update
-// the expiry watcher to include height-based expiry watcher for htlcs as they
-// are added to an invoice. Adding per-htlc batch will result in the expiry
-// watcher having multiple entries per-invoice. Our cancel logic can handle
-// duplicates already, and this is a simpler approach than tracking whether we
-// already have an expiry entry for an invoice.
-func (ew *InvoiceExpiryWatcher) addHtlcs(paymentHash lntypes.Hash,
-	minHeight uint32) {
-
-	expiry := makeHeightExpiry(paymentHash, minHeight)
-
-	select {
-	case ew.newInvoices <- []invoiceExpiry{expiry}:
-		log.Debugf("Invoice: %v added minimum height %v to "+
-			"expiry watcher, expires at: %v", paymentHash,
-			minHeight, minHeight-ew.blockExpiryDelta)
 
 	// Select on quit too so that callers won't get blocked in case
 	// of concurrent shutdown.
