@@ -274,30 +274,6 @@ func (ew *InvoiceExpiryWatcher) AddInvoices(invoices ...invoiceExpiry) {
 	}
 }
 
-// addHtlcs adds a height-based expiry entry for an invoice, using the lowest
-// htlc height available to expire the invoice. This should be used to update
-// the expiry watcher to include height-based expiry watcher for htlcs as they
-// are added to an invoice. Adding per-htlc batch will result in the expiry
-// watcher having multiple entries per-invoice. Our cancel logic can handle
-// duplicates already, and this is a simpler approach than tracking whether we
-// already have an expiry entry for an invoice.
-func (ew *InvoiceExpiryWatcher) addHtlcs(paymentHash lntypes.Hash,
-	minHeight uint32) {
-
-	expiry := makeHeightExpiry(paymentHash, minHeight)
-
-	select {
-	case ew.newInvoices <- []invoiceExpiry{expiry}:
-		log.Debugf("Invoice: %v added minimum height %v to "+
-			"expiry watcher, expires at: %v", paymentHash,
-			minHeight, minHeight-ew.blockExpiryDelta)
-
-	// Select on quit too so that callers won't get blocked in case
-	// of concurrent shutdown.
-	case <-ew.quit:
-	}
-}
-
 // nextTimestampExpiry returns a Time chan to wait on until the next invoice
 // expires. If there are no active invoices, then it'll simply wait
 // indefinitely.
