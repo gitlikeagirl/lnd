@@ -290,9 +290,10 @@ func TestExpiryHeightArrives(t *testing.T) {
 	defer test.watcher.Stop()
 
 	htlc1 := uint32(testCurrentHeight + 10)
+	expiry1 := makeHeightExpiry(test.hash, htlc1)
 
 	// Add htlcs to our invoice and progress its state to accepted.
-	test.watcher.addHtlcs(test.hash, htlc1)
+	test.watcher.AddInvoices(expiry1)
 	test.setState(channeldb.ContractAccepted)
 
 	// Progress time so that our expiry has elapsed. We no longer expect
@@ -307,7 +308,8 @@ func TestExpiryHeightArrives(t *testing.T) {
 	// Now, we add another htlc to the invoice. This one has a lower expiry
 	// height than our current ones.
 	htlc2 := currentHeight + 5
-	test.watcher.addHtlcs(test.hash, htlc2)
+	expiry2 := makeHeightExpiry(test.hash, htlc2)
+	test.watcher.AddInvoices(expiry2)
 
 	// Announce our lowest htlc expiry block less our delta, the invoice
 	// should be expired now.
