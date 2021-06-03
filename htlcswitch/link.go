@@ -2156,6 +2156,12 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
+// RemoteHtlcSlots returns a boolean indicating whether the remote party has
+// any htlc slots available.
+func (l *channelLink) RemoteSlots() bool {
+	return l.channel.RemoteHtlcSlots() != 0
+}
+
 // AttachMailBox updates the current mailbox used by this link, and hooks up
 // the mailbox's message and packet outboxes to the link's upstream and
 // downstream chans, respectively.
@@ -2316,6 +2322,23 @@ func (l *channelLink) canSendHtlc(policy ForwardingPolicy,
 			},
 		)
 		return NewDetailedLinkError(failure, OutgoingFailureHTLCExceedsMax)
+	}
+
+	// Now, we check whether we have any available slots for this htlc on
+	// the remote party's commitment.
+	if !l.RemoteSlots() {
+		l.log.Errorf("remote commitment does not have space for " +
+			"outgoing htlc: (%x)")
+
+		failure := l.createFailureWithUpdate(
+			func(upd *lnwire.ChannelUpdate) lnwire.FailureMessage {
+				return lnwire.NewTemporaryChannelFailure(upd)
+			},
+		)
+
+		return NewDetailedLinkError(
+			failure, OutgoingFailureRemoteHtlcSlots,
+		)
 	}
 
 	// We want to avoid offering an HTLC which will expire in the near

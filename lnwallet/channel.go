@@ -6963,6 +6963,19 @@ func (lc *LightningChannel) ActiveHtlcs() []channeldb.HTLC {
 	return lc.channelState.ActiveHtlcs()
 }
 
+// RemoteHtlcSlots returns the number of slots remaining on the remote party's
+// commitment. This count only includes htlcs that are active on *both*
+// commitment transactions.
+func (lc *LightningChannel) RemoteHtlcSlots() int {
+	lc.RLock()
+	defer lc.RUnlock()
+
+	slots := lc.channelState.LocalChanCfg.MaxAcceptedHtlcs
+	htlcs := len(lc.channelState.ActiveHtlcs())
+
+	return int(slots) - htlcs
+}
+
 // LocalChanReserve returns our local ChanReserve requirement for the remote party.
 func (lc *LightningChannel) LocalChanReserve() btcutil.Amount {
 	return lc.channelState.LocalChanCfg.ChanReserve

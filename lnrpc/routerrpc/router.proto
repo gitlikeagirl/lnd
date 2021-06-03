@@ -651,6 +651,7 @@ enum FailureDetail {
     INVALID_KEYSEND = 20;
     MPP_IN_PROGRESS = 21;
     CIRCULAR_ROUTE = 22;
+    NO_HTLC_SLOTS = 23;
 }
 
 enum PaymentState {

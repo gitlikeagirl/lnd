@@ -54,6 +54,10 @@ const (
 	// OutgoingFailureForwardsDisabled is returned when the switch is
 	// configured to disallow forwards.
 	OutgoingFailureForwardsDisabled
+
+	// OutgoingFailureRemoteHtlcSlots is returned when we fail a htlc back
+	// because we don't have enough slots on the remote party's commitment.
+	OutgoingFailureRemoteHtlcSlots
 )
 
 // FailureString returns the string representation of a failure detail.
@@ -90,6 +94,9 @@ func (fd OutgoingFailure) FailureString() string {
 
 	case OutgoingFailureForwardsDisabled:
 		return "node configured to disallow forwards"
+
+	case OutgoingFailureRemoteHtlcSlots:
+		return "remote commitment out of htlc slots"
 
 	default:
 		return "unknown failure detail"

@@ -238,6 +238,9 @@ func rpcOutgoingFailure(failureDetail htlcswitch.OutgoingFailure) (
 	case htlcswitch.OutgoingFailureForwardsDisabled:
 		return FailureDetail_FORWARDS_DISABLED, nil
 
+	case htlcswitch.OutgoingFailureRemoteHtlcSlots:
+		return FailureDetail_NO_HTLC_SLOTS, nil
+
 	default:
 		return 0, fmt.Errorf("unknown outgoing failure "+
 			"detail: %v", failureDetail.FailureString())

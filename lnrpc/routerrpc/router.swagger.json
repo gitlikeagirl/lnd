@@ -1115,7 +1115,8 @@
         "UNKNOWN_INVOICE",
         "INVALID_KEYSEND",
         "MPP_IN_PROGRESS",
-        "CIRCULAR_ROUTE"
+        "CIRCULAR_ROUTE",
+        "NO_HTLC_SLOTS"
       ],
       "default": "UNKNOWN"
     },
