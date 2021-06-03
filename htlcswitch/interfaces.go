@@ -145,6 +145,8 @@ type ChannelLink interface {
 	// will use this function in forwarding decisions accordingly.
 	EligibleToForward() bool
 
+	RemoteSlots() bool
+
 	// AttachMailBox delivers an active MailBox to the link. The MailBox may
 	// have buffered messages.
 	AttachMailBox(MailBox)

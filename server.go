@@ -718,6 +718,10 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 			return 0
 		}
 
+		if !link.RemoteSlots() {
+			return 0
+		}
+
 		// Otherwise, we'll return the current best estimate
 		// for the available bandwidth for the link.
 		return link.Bandwidth()
