@@ -3,7 +3,6 @@ package itest
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
@@ -15,9 +14,8 @@ import (
 
 // testMaxHtlcPathfind tests the case where we try to send a payment over a
 // channel where we have already reached the limit of the number of htlcs that
-// we may add to the remote party's commitment. This test is just for
-// reproduction's sake, and simply logs the endless stream of htlcs that result
-// when we try to route over a full channel.
+// we may add to the remote party's commitment. This test asserts that we do
+// not attempt to use the full channel at all in our pathfinding.
 func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 	ctxb := context.Background()
 
@@ -68,19 +66,15 @@ func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 	}, maxHtlcs+1)
 	require.NoError(t.t, err, "htlcs not active")
 
-	// Now, we're going to try to send another payment from Bob -> Alice.
+	// Now, e're going to try to send another payment from Bob -> Alice.
 	// We've hit our max remote htlcs, so we expect this payment to spin
 	// out dramatically with pathfinding.
-	paymentTimeout := time.Second * 60
-	ctxBuffer := time.Second * 10
-	paymentCtx, cancel := context.WithTimeout(ctxb, paymentTimeout+ctxBuffer)
-	defer cancel()
-
+	ctxt, _ = context.WithTimeout(ctxb, defaultTimeout)
 	payment, err := net.Bob.RouterClient.SendPaymentV2(
-		paymentCtx, &routerrpc.SendPaymentRequest{
+		ctxt, &routerrpc.SendPaymentRequest{
 			Amt:            1000,
 			Dest:           net.Alice.PubKey[:],
-			TimeoutSeconds: int32(paymentTimeout.Seconds()),
+			TimeoutSeconds: 60,
 			FeeLimitSat:    1000000,
 			MaxParts:       10,
 			Amp:            true,
@@ -88,17 +82,15 @@ func testMaxHtlcPathfind(net *lntest.NetworkHarness, t *harnessTest) {
 	)
 	require.NoError(t.t, err, "send payment failed")
 
-	t.Logf("Starting to consume payment updates")
-	for {
-		update, err := payment.Recv()
-		if err != nil {
-			t.Logf("Payment error: %v", err)
-			break
-		}
+	update, err := payment.Recv()
+	require.NoError(t.t, err, "no payment in flight update")
+	require.Equal(t.t, lnrpc.Payment_IN_FLIGHT, update.Status,
+		"payment not inflight")
 
-		t.Logf("Payment update: %v, htlcs: %v", update.Status,
-			len(update.Htlcs))
-	}
+	update, err = payment.Recv()
+	require.NoError(t.t, err, "no payment failed update")
+	require.Equal(t.t, lnrpc.Payment_FAILED, update.Status)
+	require.Len(t.t, update.Htlcs, 0, "expected no htlcs dispatched")
 
 	ctxt, _ = context.WithTimeout(ctxb, channelCloseTimeout)
 	closeChannelAndAssert(ctxt, t, net, net.Alice, chanPoint, true)
