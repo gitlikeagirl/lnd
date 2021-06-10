@@ -145,6 +145,10 @@ type ChannelLink interface {
 	// will use this function in forwarding decisions accordingly.
 	EligibleToForward() bool
 
+	// MayAddOutgoingHtlc indicates whether we may add an outgoing htlc to
+	// the channel.
+	MayAddOutgoingHtlc() bool
+
 	// AttachMailBox delivers an active MailBox to the link. The MailBox may
 	// have buffered messages.
 	AttachMailBox(MailBox)

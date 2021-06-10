@@ -4934,6 +4934,30 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	return pd.HtlcIndex, nil
 }
 
+// MayAddOutgoingHtlc returns a bool indicating whether we can add an outgoing
+// htlc to this channel. We don't have a value or circuit for this htlc,
+// because we just want to test that we have slots for a potential htlc so we
+// use a "mock" htlc to validate a potential commitment state with one more
+// outgoing htlc.
+func (lc *LightningChannel) MayAddOutgoingHtlc() bool {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Create a "mock" outgoing htlc
+	pd := lc.htlcAddDescriptor(
+		&lnwire.UpdateAddHTLC{
+			Amount: lc.channelState.LocalChanCfg.MinHTLC,
+		},
+		&channeldb.CircuitKey{},
+	)
+
+	if err := lc.validateAddHtlc(pd); err != nil {
+		return false
+	}
+
+	return true
+}
+
 // htlcAddDescriptor returns a payment descriptor for the htlc and open key
 // provided to add to our local updated log.
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
