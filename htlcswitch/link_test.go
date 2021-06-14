@@ -670,6 +670,7 @@ func testChannelLinkMultiHopPayment(t *testing.T,
 // TestChannelLinkCancelFullCommitment tests the ability for links to cancel
 // forwarded HTLCs once all of their commitment slots are full.
 func TestChannelLinkCancelFullCommitment(t *testing.T) {
+	defer timeout(t)()
 	t.Parallel()
 
 	channels, cleanUp, _, err := createClusterChannels(

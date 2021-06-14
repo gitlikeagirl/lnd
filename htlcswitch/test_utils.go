@@ -1378,7 +1378,8 @@ func timeout(t *testing.T) func() {
 		case <-time.After(20 * time.Second):
 			pprof.Lookup("goroutine").WriteTo(os.Stdout, 1)
 
-			panic("test timeout")
+			//panic("test timeout")
+			t.Fail()
 		case <-done:
 		}
 	}()
