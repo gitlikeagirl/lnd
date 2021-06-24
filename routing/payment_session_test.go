@@ -92,10 +92,8 @@ func TestRequestRoute(t *testing.T) {
 
 	session, err := newPaymentSession(
 		payment,
-		func() (map[uint64]lnwire.MilliSatoshi,
-			error) {
-
-			return nil, nil
+		func() (bandwidthHints, error) {
+			return &mockBandwidthHints{}, nil
 		},
 		func() (routingGraph, func(), error) {
 			return &sessionGraph{}, func() {}, nil

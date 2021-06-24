@@ -67,10 +67,8 @@ func (m *SessionSource) NewPaymentSession(p *LightningPayment) (
 		return nil, err
 	}
 
-	getBandwidthHints := func() (map[uint64]lnwire.MilliSatoshi,
-		error) {
-
-		return generateBandwidthHints(sourceNode, m.QueryBandwidth)
+	getBandwidthHints := func() (bandwidthHints, error) {
+		return newBandwidthManager(sourceNode, m.QueryBandwidth)
 	}
 
 	session, err := newPaymentSession(
