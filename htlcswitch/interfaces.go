@@ -145,6 +145,12 @@ type ChannelLink interface {
 	// will use this function in forwarding decisions accordingly.
 	EligibleToForward() bool
 
+	// PaymentSlotAvailable indicates whether we can add an outgoing htlc
+	// with the amount provided to the link. This check does not reserve
+	// a space, since forwards or other payments may use the available slot,
+	// so it should be considered best-effort.
+	PaymentSlotAvailable(amt lnwire.MilliSatoshi) bool
+
 	// AttachMailBox delivers an active MailBox to the link. The MailBox may
 	// have buffered messages.
 	AttachMailBox(MailBox)

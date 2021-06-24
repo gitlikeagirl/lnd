@@ -2156,6 +2156,14 @@ func (l *channelLink) Bandwidth() lnwire.MilliSatoshi {
 	return l.channel.AvailableBalance()
 }
 
+// PaymentSlotAvailable indicates whether we can add an outgoing htlc  with the
+// amount provided to the link. This check does not reserve  a space, since
+// forwards or other payments may use the available slot, so it should be
+// considered best-effort.
+func (l *channelLink) PaymentSlotAvailable(amt lnwire.MilliSatoshi) bool {
+	return l.channel.PaymentSlotAvailable(amt)
+}
+
 // AttachMailBox updates the current mailbox used by this link, and hooks up
 // the mailbox's message and packet outboxes to the link's upstream and
 // downstream chans, respectively.

@@ -4934,6 +4934,30 @@ func (lc *LightningChannel) AddHTLC(htlc *lnwire.UpdateAddHTLC,
 	return pd.HtlcIndex, nil
 }
 
+// PaymentSlotAvailable validates whether we can add an outgoing htlc to this
+// channel. We don't have a value or circuit for this htlc, because we just
+// want to test that we have slots for a potential htlc so we use a "mock"
+// htlc to validate a potential commitment state with one more outgoing htlc.
+func (lc *LightningChannel) PaymentSlotAvailable(amt lnwire.MilliSatoshi) bool {
+	lc.Lock()
+	defer lc.Unlock()
+
+	// Create a "mock" outgoing htlc with the amount provided.
+	pd := lc.htlcAddDescriptor(
+		&lnwire.UpdateAddHTLC{
+			Amount: amt,
+		},
+		&channeldb.CircuitKey{},
+	)
+
+	if err := lc.validateAddHtlc(pd); err != nil {
+		lc.log.Debugf("Payment slots available htlc rejected: %v", err)
+		return false
+	}
+
+	return true
+}
+
 // htlcAddDescriptor returns a payment descriptor for the htlc and open key
 // provided to add to our local update log.
 func (lc *LightningChannel) htlcAddDescriptor(htlc *lnwire.UpdateAddHTLC,
