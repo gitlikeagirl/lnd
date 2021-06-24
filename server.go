@@ -702,7 +702,9 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		return nil, err
 	}
 
-	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi {
+	queryBandwidth := func(edge *channeldb.ChannelEdgeInfo,
+		amount *lnwire.MilliSatoshi) lnwire.MilliSatoshi {
+
 		cid := lnwire.NewChanIDFromOutPoint(&edge.ChannelPoint)
 		link, err := s.htlcSwitch.GetLink(cid)
 		if err != nil {
@@ -716,6 +718,17 @@ func newServer(cfg *Config, listenAddrs []net.Addr,
 		// it as if it isn't online in the first place.
 		if !link.EligibleToForward() {
 			return 0
+		}
+
+		// If an amount was specified, we're querying available
+		// bandwidth for the addition of a specific hltc, so we want
+		// to validate that the link has a payment slot available for
+		// this amount. If not, we return a 0 bandwidth because the
+		// link is unusable for this htlc.
+		if amount != nil {
+			if !link.PaymentSlotAvailable(*amount) {
+				return 0
+			}
 		}
 
 		// Otherwise, we'll return the current best estimate

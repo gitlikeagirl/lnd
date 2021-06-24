@@ -11,13 +11,17 @@ import (
 type bandwidthHints interface {
 	// availableBandwidth returns the total available bandwidth for a
 	// channel and a bool indicating whether the channel hint was found.
-	// If the channel is unavailable, a zero amount is returned.
-	availableBandwidth(channelID uint64) (lnwire.MilliSatoshi, bool)
+	// If the channel is unavailable, a zero amount is returned. It takes
+	// an optional htlc amount parameter which can be used to validate the
+	// amount against the channel's flow constraints.
+	availableBandwidth(channelID uint64,
+		htlcAmount *lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool)
 }
 
 // linkQuery is the function signature used to query the link for the currently
 // available bandwidth for an edge.
-type linkQuery func(*channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+type linkQuery func(*channeldb.ChannelEdgeInfo,
+	*lnwire.MilliSatoshi) lnwire.MilliSatoshi
 
 // bandwidthManager is an implementation of the bandwidthHints interface which
 // queries the link for our latest local channel balances.
@@ -57,13 +61,13 @@ func newBandwidthManager(sourceNode *channeldb.LightningNode,
 	return manager, nil
 }
 
-func (b *bandwidthManager) availableBandwidth(channelID uint64) (
-	lnwire.MilliSatoshi, bool) {
+func (b *bandwidthManager) availableBandwidth(channelID uint64,
+	amount *lnwire.MilliSatoshi) (lnwire.MilliSatoshi, bool) {
 
 	channel, ok := b.localChans[channelID]
 	if !ok {
 		return 0, false
 	}
 
-	return b.linkQuery(channel), true
+	return b.linkQuery(channel, amount), true
 }

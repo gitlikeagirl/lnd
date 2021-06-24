@@ -332,7 +332,8 @@ type Config struct {
 	// a value of zero should be returned. Otherwise, the current up to
 	// date knowledge of the available bandwidth of the link should be
 	// returned.
-	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo) lnwire.MilliSatoshi
+	QueryBandwidth func(edge *channeldb.ChannelEdgeInfo,
+		amount *lnwire.MilliSatoshi) lnwire.MilliSatoshi
 
 	// NextPaymentID is a method that guarantees to return a new, unique ID
 	// each time it is called. This is used by the router to generate a

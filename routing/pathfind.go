@@ -375,7 +375,10 @@ func getOutgoingBalance(node route.Vertex, outgoingChans map[uint64]struct{},
 			}
 		}
 
-		bandwidth, ok := bandwidthHints.availableBandwidth(chanID)
+		// Query for our available bandwidth with no specific amount,
+		// because we just want to know our current balance, rather
+		// than check bandwidth for specific flow constraints.
+		bandwidth, ok := bandwidthHints.availableBandwidth(chanID, nil)
 
 		// If the bandwidth is not available, use the channel capacity.
 		// This can happen when a channel is added to the graph after
